@@ -34,12 +34,25 @@ fn (app &App) find_fork_by_repo(repo_id int) ?RepoFork {
 	return rows.first()
 }
 
-fn (app &App) find_repo_forks(source_repo_id int) []Repo {
+// find_repo_forks returns the other repositories in the complete fork network,
+// not just immediate children. A fork of a fork is still a sibling of the
+// original forks for discovery and cross-fork contribution purposes.
+fn (app &App) find_repo_forks(repo_id int) []Repo {
+	root_repo_id := app.repo_fork_root_id(repo_id)
 	relations := sql app.db {
-		select from RepoFork where source_repo_id == source_repo_id order by created_at desc
+		select from RepoFork where root_repo_id == root_repo_id order by created_at desc
 	} or { []RepoFork{} }
-	mut repos := []Repo{cap: relations.len}
+	mut repos := []Repo{cap: relations.len + 1}
+	if root_repo_id != repo_id {
+		root := app.find_repo_by_id(root_repo_id) or { Repo{} }
+		if root.id > 0 && !root.is_deleted {
+			repos << root
+		}
+	}
 	for relation in relations {
+		if relation.repo_id == repo_id {
+			continue
+		}
 		repo := app.find_repo_by_id(relation.repo_id) or { continue }
 		if !repo.is_deleted {
 			repos << repo
@@ -48,10 +61,19 @@ fn (app &App) find_repo_forks(source_repo_id int) []Repo {
 	return repos
 }
 
-fn (app &App) count_repo_forks(source_repo_id int) int {
-	return sql app.db {
-		select count from RepoFork where source_repo_id == source_repo_id
+fn (app &App) count_repo_forks(repo_id int) int {
+	root_repo_id := app.repo_fork_root_id(repo_id)
+	current_repo_id := repo_id
+	mut count := sql app.db {
+		select count from RepoFork where root_repo_id == root_repo_id && repo_id != current_repo_id
 	} or { 0 }
+	if root_repo_id != repo_id {
+		root := app.find_repo_by_id(root_repo_id) or { Repo{} }
+		if root.id > 0 && !root.is_deleted {
+			count++
+		}
+	}
+	return count
 }
 
 fn (app &App) repo_fork_root_id(repo_id int) int {
@@ -62,6 +84,27 @@ fn (app &App) repo_fork_root_id(repo_id int) int {
 fn (app &App) repos_share_fork_network(first_id int, second_id int) bool {
 	return first_id > 0 && second_id > 0
 		&& app.repo_fork_root_id(first_id) == app.repo_fork_root_id(second_id)
+}
+
+fn (app &App) namespace_has_fork_in_network(repo_id int, owner_name string) bool {
+	if repo_id <= 0 || owner_name == '' {
+		return false
+	}
+	root_repo_id := app.repo_fork_root_id(repo_id)
+	root := app.find_repo_by_id(root_repo_id) or { Repo{} }
+	if root.id > 0 && root.user_name == owner_name && !root.is_deleted {
+		return true
+	}
+	relations := sql app.db {
+		select from RepoFork where root_repo_id == root_repo_id
+	} or { []RepoFork{} }
+	for relation in relations {
+		repo := app.find_repo_by_id(relation.repo_id) or { continue }
+		if !repo.is_deleted && repo.user_name == owner_name {
+			return true
+		}
+	}
+	return false
 }
 
 fn fetch_fork_branch_into(target Repo, source Repo, branch string, destination_ref string) ! {
@@ -130,8 +173,15 @@ fn (mut app App) refresh_open_cross_fork_pr_heads(source_repo_id int, branch str
 }
 
 fn (mut app App) delete_repo_fork_relationships(repo_id int) ! {
+	relation := app.find_fork_by_repo(repo_id) or { RepoFork{} }
+	if relation.source_repo_id > 0 {
+		upstream_repo_id := relation.source_repo_id
+		sql app.db {
+			update RepoFork set source_repo_id = upstream_repo_id where source_repo_id == repo_id
+		}!
+	}
 	sql app.db {
-		delete from RepoFork where repo_id == repo_id || source_repo_id == repo_id
+		delete from RepoFork where repo_id == repo_id
 	}!
 }
 
@@ -162,6 +212,9 @@ fn (mut app App) create_fork(source Repo, owner_name string, owner_user_id int, 
 	if source.id <= 0 || source.status != .done || source.is_deleted || owner_name == ''
 		|| owner_user_id <= 0 || created_by <= 0 {
 		return error('The source repository is not available for forking')
+	}
+	if app.namespace_has_fork_in_network(source.id, owner_name) {
+		return error('The destination namespace already contains a repository in this fork network')
 	}
 	owner_dir := os.join_path(app.config.repo_storage_path, owner_name)
 	os.mkdir_all(owner_dir)!
@@ -266,7 +319,7 @@ fn (mut app App) sync_fork(repo Repo, relation RepoFork, default_branch_only boo
 	mut result := ForkSyncResult{}
 	for raw_branch in refs.output.split_into_lines() {
 		branch := raw_branch.trim_space()
-		if branch == '' || (default_branch_only && branch != repo.primary_branch) {
+		if branch == '' || (default_branch_only && branch != source.primary_branch) {
 			continue
 		}
 		local_ref := 'refs/heads/${branch}'

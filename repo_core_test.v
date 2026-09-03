@@ -286,6 +286,23 @@ fn test_delete_repository_tombstones_before_returning() {
 		}
 		app.add_repo(repo)!
 		app.add_project_member(repo.id, 2, 'maintainer')!
+		app.add_repo(Repo{
+			id:             2
+			name:           'surviving-fork'
+			user_id:        2
+			user_name:      'member'
+			primary_branch: 'main'
+		})!
+		fork_relation := RepoFork{
+			repo_id:        2
+			source_repo_id: repo.id
+			root_repo_id:   repo.id
+			created_by:     2
+			created_at:     1
+		}
+		sql app.db {
+			insert fork_relation into RepoFork
+		}!
 
 		app.delete_repository(repo.id, '', repo.name)!
 
@@ -299,6 +316,13 @@ fn test_delete_repository_tombstones_before_returning() {
 			select count from ProjectMember where repo_id == repo_id
 		}!
 		assert member_count == 0
+		child_repo_id := 2
+		fork_rows := sql app.db {
+			select from RepoFork where repo_id == child_repo_id limit 1
+		}!
+		assert fork_rows.len == 1
+		assert fork_rows[0].source_repo_id == repo.id
+		assert fork_rows[0].root_repo_id == repo.id
 		rows := sql app.db {
 			select from Repo where id == repo_id limit 1
 		}!

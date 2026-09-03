@@ -9,6 +9,7 @@ import time
 import strings
 import os
 import io.util
+import rand
 
 struct PrWithUser {
 	pr   PullRequest
@@ -241,10 +242,13 @@ pub fn (mut app App) new_pull_request_form(mut ctx Context, username string, rep
 		} else {
 			mut compare_ref := head
 			if head_repo.id != repo.id {
-				compare_ref = 'refs/gitly-comparisons/${ctx.user.id}/${head_repo.id}'
+				compare_ref = 'refs/gitly-comparisons/${ctx.user.id}/${head_repo.id}/${rand.ulid()}'
 				fetch_fork_branch_into(repo, head_repo, head, compare_ref) or {
 					error_msg = err.str()
 					has_compare = false
+				}
+				defer {
+					git.Git.exec_in_dir(repo.git_dir, ['update-ref', '-d', compare_ref])
 				}
 			}
 			commits = if has_compare {
@@ -298,10 +302,13 @@ pub fn (mut app App) handle_create_pull_request(mut ctx Context, username string
 	}
 	mut compare_ref := head
 	if head_repo.id != repo.id {
-		compare_ref = 'refs/gitly-comparisons/${ctx.user.id}/${head_repo.id}'
+		compare_ref = 'refs/gitly-comparisons/${ctx.user.id}/${head_repo.id}/${rand.ulid()}'
 		fetch_fork_branch_into(repo, head_repo, head, compare_ref) or {
 			ctx.error(err.str())
 			return ctx.redirect('/${username}/${repo_name}/compare')
+		}
+		defer {
+			git.Git.exec_in_dir(repo.git_dir, ['update-ref', '-d', compare_ref])
 		}
 	}
 	commits := repo.list_commits_between(base, compare_ref)

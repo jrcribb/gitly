@@ -31,11 +31,43 @@
 					<div class="settings-section">
 						<h3>@mirror.direction mirror</h3>
 						<p><code>@mirror.url</code></p>
-						<p>Last update: @{mirror.last_update_description()} · Every @mirror.interval_minutes minutes</p>
+						<p>Last update: @{mirror.last_update_description()} · Next update: @{mirror.next_update_description()} · Every @mirror.interval_minutes minutes</p>
+						<p>
+							@if mirror.is_syncing
+								Synchronizing now
+							@else if mirror.enabled
+								Enabled
+							@else
+								Paused
+							@end
+							·
+							@if mirror.only_protected
+								Protected branches only
+							@else
+								All branches
+							@end
+							·
+							@if mirror.overwrite_diverged
+								Overwrite divergence
+							@else
+								Reject divergence
+							@end
+						</p>
 						@if mirror.last_error != ''
 							<div class="form-error">@mirror.last_error</div>
 						@end
-						<form action="/@repo.user_name/@repo.name/settings/mirrors/@mirror.id/sync" method="post"><button type="submit">Update now</button></form>
+						@if mirror.enabled && !mirror.is_syncing
+							<form action="/@repo.user_name/@repo.name/settings/mirrors/@mirror.id/sync" method="post"><button type="submit">Update now</button></form>
+						@end
+						<form action="/@repo.user_name/@repo.name/settings/mirrors/@mirror.id/toggle" method="post">
+							<button type="submit">
+								@if mirror.enabled
+									Pause
+								@else
+									Resume
+								@end
+							</button>
+						</form>
 						<form action="/@repo.user_name/@repo.name/settings/mirrors/@mirror.id/delete" method="post"><button type="submit">Remove</button></form>
 					</div>
 				@end

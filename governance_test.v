@@ -56,6 +56,17 @@ fn test_project_roles_separate_read_write_and_admin_access() {
 		app.add_project_member(1, 2, 'reporter')!
 		app.add_project_member(1, 3, 'developer')!
 		app.add_project_member(1, 4, 'maintainer')!
+		mut duplicate_rejected := false
+		app.add_project_member(1, 2, 'developer') or { duplicate_rejected = true }
+		assert duplicate_rejected
+		mut missing_update_rejected := false
+		app.update_project_member_role(1, 999_999, 'reporter') or {
+			missing_update_rejected = true
+		}
+		assert missing_update_rejected
+		mut missing_delete_rejected := false
+		app.remove_project_member(1, 999_999) or { missing_delete_rejected = true }
+		assert missing_delete_rejected
 		repo := app.find_repo_by_id(1) or { panic('repo missing') }
 
 		assert app.repo_access_level(1, repo) == project_access_owner

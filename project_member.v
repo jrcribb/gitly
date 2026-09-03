@@ -116,18 +116,27 @@ fn (mut app App) update_project_member_role(repo_id int, member_id int, role str
 	if repo_id <= 0 || member_id <= 0 || !valid_project_member_role(role) {
 		return error('invalid project member role')
 	}
-	sql app.db {
-		update ProjectMember set role = role where id == member_id && repo_id == repo_id
-	}!
+	rows := db_exec_values(mut app.db, 'update ${sql_table('ProjectMember')}
+		set ${sql_table('role')} = ${sql_literal(role)}
+		where ${sql_table('id')} = ${member_id}
+			and ${sql_table('repo_id')} = ${repo_id}
+		returning ${sql_table('id')}')!
+	if rows.len != 1 {
+		return error('project member not found')
+	}
 }
 
 fn (mut app App) remove_project_member(repo_id int, member_id int) ! {
 	if repo_id <= 0 || member_id <= 0 {
 		return error('invalid project member')
 	}
-	sql app.db {
-		delete from ProjectMember where id == member_id && repo_id == repo_id
-	}!
+	rows := db_exec_values(mut app.db, 'delete from ${sql_table('ProjectMember')}
+		where ${sql_table('id')} = ${member_id}
+			and ${sql_table('repo_id')} = ${repo_id}
+		returning ${sql_table('id')}')!
+	if rows.len != 1 {
+		return error('project member not found')
+	}
 }
 
 fn (mut app App) delete_repo_project_members(repo_id int) ! {

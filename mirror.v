@@ -13,8 +13,10 @@ import crypto.aes
 import crypto.rand as crypto_rand
 import crypto.sha256
 import encoding.base64
+import io.util
 
 const mirror_secret_aad = 'gitly-repository-mirror-v1'
+const mirror_sync_lease_seconds = 60 * 60
 
 struct RepoMirror {
 	id                   int @[primary; sql: serial]
@@ -36,6 +38,13 @@ struct RepoMirror {
 	last_error           string
 	consecutive_failures int
 	is_syncing           bool
+	sync_started_at      int
+}
+
+struct MirrorRefUpdate {
+	ref_name string
+	new_oid  string
+	old_oid  string
 }
 
 fn valid_mirror_direction(direction string) bool {
@@ -178,6 +187,16 @@ fn (mirror RepoMirror) last_update_description() string {
 	return time.unix(mirror.last_update_at).relative()
 }
 
+fn (mirror RepoMirror) next_update_description() string {
+	if !mirror.enabled {
+		return 'Paused'
+	}
+	if mirror.next_update_at <= 0 {
+		return 'Pending'
+	}
+	return time.unix(mirror.next_update_at).relative()
+}
+
 fn (app &App) list_repo_mirrors(repo_id int) []RepoMirror {
 	return sql app.db {
 		select from RepoMirror where repo_id == repo_id order by id desc
@@ -234,7 +253,8 @@ fn (mut app App) add_repo_mirror(repo_id int, created_by int, raw_url string, fo
 	return db_insert_returning_id(mut app.db, 'RepoMirror', ['repo_id', 'created_by', 'direction',
 		'url', 'encrypted_username', 'encrypted_password', 'encrypted_ssh_key', 'ssh_known_hosts',
 		'enabled', 'overwrite_diverged', 'only_protected', 'interval_minutes', 'created_at',
-		'last_update_at', 'next_update_at', 'last_error', 'consecutive_failures', 'is_syncing'], [
+		'last_update_at', 'next_update_at', 'last_error', 'consecutive_failures', 'is_syncing',
+		'sync_started_at'], [
 		repo_id.str(),
 		created_by.str(),
 		direction,
@@ -253,7 +273,24 @@ fn (mut app App) add_repo_mirror(repo_id int, created_by int, raw_url string, fo
 		'',
 		'0',
 		db_bool_value(false),
+		'0',
 	])
+}
+
+fn (mut app App) set_repo_mirror_enabled(repo_id int, mirror_id int, enabled bool) ! {
+	if repo_id <= 0 || mirror_id <= 0 {
+		return error('Invalid repository mirror')
+	}
+	next_update_at := int(time.now().unix())
+	rows := db_exec_values(mut app.db, 'update ${sql_table('RepoMirror')}
+		set ${sql_table('enabled')} = ${db_bool_value(enabled)},
+			${sql_table('next_update_at')} = ${next_update_at}
+		where ${sql_table('id')} = ${mirror_id}
+			and ${sql_table('repo_id')} = ${repo_id}
+		returning ${sql_table('id')}')!
+	if rows.len != 1 {
+		return error('Repository mirror not found')
+	}
 }
 
 fn (mut app App) delete_repo_mirror(repo_id int, mirror_id int) ! {
@@ -378,6 +415,41 @@ fn mirror_remote_branches(repo Repo, mirror RepoMirror) ![]string {
 	return refs.output.split_into_lines().map(it.trim_space()).filter(it != '')
 }
 
+// update_mirror_refs applies a fetched snapshot as one Git reference
+// transaction. A diverged tag/branch or a concurrent local push therefore
+// aborts the whole publication instead of leaving a partially mirrored state.
+fn update_mirror_refs(git_dir string, updates []MirrorRefUpdate) ! {
+	if updates.len == 0 {
+		return
+	}
+	mut transaction := ''
+	for update in updates {
+		if !update.ref_name.starts_with('refs/') || update.ref_name.contains_any('\x00\r\n ')
+			|| !is_full_git_oid(update.new_oid) || !is_full_git_oid(update.old_oid) {
+			return error('Invalid mirror ref transaction')
+		}
+		transaction += 'update ${update.ref_name} ${update.new_oid} ${update.old_oid}\n'
+	}
+	mut input, input_path := util.temp_file(pattern: 'gitly-mirror-refs-*.stdin')!
+	input.close()
+	defer {
+		os.rm(input_path) or {}
+	}
+	os.write_file(input_path, transaction)!
+	mut process := os.new_process('git')
+	process.set_args(['-C', git_dir, 'update-ref', '--stdin'])
+	process.set_redirect_stdio_merged()
+	process.set_stdin_path(input_path)
+	process.run()
+	output := process.stdout_slurp()
+	process.wait()
+	exit_code := process.code
+	process.close()
+	if exit_code != 0 {
+		return error('Local references changed during mirror update: ${output.trim_space()}')
+	}
+}
+
 fn (mut app App) pull_repo_mirror(repo Repo, mirror RepoMirror, env map[string]string) ! {
 	remote := mirror_remote_name(mirror.id)
 	fetch := git.Git.exec_in_dir_with_env(repo.git_dir, ['-c', 'http.followRedirects=false', 'fetch',
@@ -386,6 +458,7 @@ fn (mut app App) pull_repo_mirror(repo Repo, mirror RepoMirror, env map[string]s
 	if fetch.exit_code != 0 {
 		return error('Mirror fetch failed: ${fetch.output.trim_space()}')
 	}
+	mut updates := []MirrorRefUpdate{}
 	for branch in mirror_remote_branches(repo, mirror)! {
 		if !mirror_branch_allowed(app, mirror, branch) {
 			continue
@@ -402,6 +475,9 @@ fn (mut app App) pull_repo_mirror(repo Repo, mirror RepoMirror, env map[string]s
 			expected_old_sha = git_rev_parse(repo.git_dir, local_ref) or {
 				return error('Could not resolve local branch ${branch}')
 			}
+			if expected_old_sha == remote_sha {
+				continue
+			}
 			if !mirror.overwrite_diverged {
 				ff := git.Git.exec_in_dir(repo.git_dir, ['merge-base', '--is-ancestor',
 					expected_old_sha, remote_sha])
@@ -410,8 +486,10 @@ fn (mut app App) pull_repo_mirror(repo Repo, mirror RepoMirror, env map[string]s
 				}
 			}
 		}
-		update_git_ref_expected(repo.git_dir, local_ref, remote_sha, expected_old_sha) or {
-			return error('Could not update mirrored branch ${branch}')
+		updates << MirrorRefUpdate{
+			ref_name: local_ref
+			new_oid: remote_sha
+			old_oid: expected_old_sha
 		}
 	}
 	if !mirror.only_protected {
@@ -426,22 +504,28 @@ fn (mut app App) pull_repo_mirror(repo Repo, mirror RepoMirror, env map[string]s
 			remote_sha := git_rev_parse(repo.git_dir, remote_ref) or {
 				return error('Could not resolve mirrored tag ${tag}')
 			}
-			exists := git.Git.exec_in_dir(repo.git_dir,
-				['show-ref', '--verify', '--quiet', local_ref]).exit_code == 0
+			exists := git.Git.exec_in_dir(repo.git_dir, ['show-ref', '--verify', '--quiet',
+				local_ref]).exit_code == 0
 			mut expected_old_sha := zero_oid_like(remote_sha)!
-			if exists && !mirror.overwrite_diverged {
-				continue
-			}
 			if exists {
 				expected_old_sha = git_rev_parse(repo.git_dir, local_ref) or {
 					return error('Could not resolve local tag ${tag}')
 				}
+				if expected_old_sha == remote_sha {
+					continue
+				}
+				if !mirror.overwrite_diverged {
+					return error('Mirror tag ${tag} diverged; enable overwrite to replace it')
+				}
 			}
-			update_git_ref_expected(repo.git_dir, local_ref, remote_sha, expected_old_sha) or {
-				return error('Could not update mirrored tag ${tag}')
+			updates << MirrorRefUpdate{
+				ref_name: local_ref
+				new_oid: remote_sha
+				old_oid: expected_old_sha
 			}
 		}
 	}
+	update_mirror_refs(repo.git_dir, updates)!
 	mut refreshed := repo
 	app.update_repo_from_fs(mut refreshed, false)!
 }
@@ -457,7 +541,7 @@ fn local_repo_branches(repo Repo) []string {
 
 fn (app &App) push_repo_mirror(repo Repo, mirror RepoMirror, env map[string]string) ! {
 	remote := mirror_remote_name(mirror.id)
-	mut args := ['-c', 'http.followRedirects=false', 'push']
+	mut args := ['-c', 'http.followRedirects=false', 'push', '--atomic']
 	if !mirror.only_protected {
 		args << '--prune'
 	}
@@ -469,7 +553,7 @@ fn (app &App) push_repo_mirror(repo Repo, mirror RepoMirror, env map[string]stri
 				args << '${prefix}refs/heads/${branch}:refs/heads/${branch}'
 			}
 		}
-		if args.len == 4 {
+		if args.len == 5 {
 			return error('No protected branches are available to mirror')
 		}
 	} else {
@@ -487,31 +571,55 @@ fn (mut app App) record_mirror_result(mirror RepoMirror, message string) {
 	next := now + mirror.interval_minutes * 60
 	failures := if message == '' { 0 } else { mirror.consecutive_failures + 1 }
 	false_value := false
+	sync_started_at := 0
+	claimed_at := mirror.sync_started_at
 	sql app.db {
 		update RepoMirror set last_update_at = now, next_update_at = next, last_error = message,
-		consecutive_failures = failures, is_syncing = false_value where id == mirror.id
+		consecutive_failures = failures, is_syncing = false_value,
+		sync_started_at = sync_started_at where id == mirror.id && sync_started_at == claimed_at
 	} or {}
 }
 
-fn (mut app App) sync_repo_mirror(mirror RepoMirror, allow_local bool) ! {
-	if mirror.id <= 0 || !mirror.enabled || !valid_mirror_direction(mirror.direction) {
+fn (mut app App) claim_repo_mirror(mirror_id int) !RepoMirror {
+	if mirror_id <= 0 {
 		return error('The mirror is disabled or invalid')
 	}
-	if !allow_local && !is_safe_mirror_endpoint(mirror.url, app.config.mirror_allowed_hosts) {
-		app.record_mirror_result(mirror, 'Blocked: destination is not an allowed Git server')
+	now := int(time.now().unix())
+	stale_before := now - mirror_sync_lease_seconds
+	rows := db_exec_values(mut app.db, 'update ${sql_table('RepoMirror')}
+		set ${sql_table('is_syncing')} = ${db_bool_value(true)},
+			${sql_table('sync_started_at')} = ${now}
+		where ${sql_table('id')} = ${mirror_id}
+			and ${sql_table('enabled')} = ${db_bool_value(true)}
+			and (${sql_table('is_syncing')} = ${db_bool_value(false)}
+				or ${sql_table('sync_started_at')} <= ${stale_before})
+		returning ${sql_table('id')}')!
+	if rows.len != 1 {
+		return error('The mirror is disabled or already synchronizing')
+	}
+	return app.find_repo_mirror(mirror_id) or { error('Repository mirror not found') }
+}
+
+fn (mut app App) sync_repo_mirror(mirror RepoMirror, allow_local bool) ! {
+	claimed := app.claim_repo_mirror(mirror.id)!
+	if !valid_mirror_direction(claimed.direction) {
+		app.record_mirror_result(claimed, 'The mirror direction is invalid')
+		return error('The mirror is invalid')
+	}
+	if !allow_local && !is_safe_mirror_endpoint(claimed.url, app.config.mirror_allowed_hosts) {
+		app.record_mirror_result(claimed, 'Blocked: destination is not an allowed Git server')
 		return error('The mirror destination is no longer safe')
 	}
-	repo := app.find_repo_by_id(mirror.repo_id) or { return error('Repository not found') }
-	true_value := true
-	sql app.db {
-		update RepoMirror set is_syncing = true_value where id == mirror.id
-	}!
-	configure_mirror_remote(repo, mirror) or {
-		app.record_mirror_result(mirror, err.str())
+	repo := app.find_repo_by_id(claimed.repo_id) or {
+		app.record_mirror_result(claimed, 'Repository not found')
+		return error('Repository not found')
+	}
+	configure_mirror_remote(repo, claimed) or {
+		app.record_mirror_result(claimed, err.str())
 		return err
 	}
-	env, cleanup_paths := prepare_mirror_auth(app, mirror) or {
-		app.record_mirror_result(mirror, err.str())
+	env, cleanup_paths := prepare_mirror_auth(app, claimed) or {
+		app.record_mirror_result(claimed, err.str())
 		return err
 	}
 	defer {
@@ -519,18 +627,18 @@ fn (mut app App) sync_repo_mirror(mirror RepoMirror, allow_local bool) ! {
 			os.rm(path) or {}
 		}
 	}
-	if mirror.direction == 'pull' {
-		app.pull_repo_mirror(repo, mirror, env) or {
-			app.record_mirror_result(mirror, err.str())
+	if claimed.direction == 'pull' {
+		app.pull_repo_mirror(repo, claimed, env) or {
+			app.record_mirror_result(claimed, err.str())
 			return err
 		}
 	} else {
-		app.push_repo_mirror(repo, mirror, env) or {
-			app.record_mirror_result(mirror, err.str())
+		app.push_repo_mirror(repo, claimed, env) or {
+			app.record_mirror_result(claimed, err.str())
 			return err
 		}
 	}
-	app.record_mirror_result(mirror, '')
+	app.record_mirror_result(claimed, '')
 }
 
 fn run_push_mirrors(repo_id int, conf config.Config) {
@@ -558,9 +666,10 @@ fn run_mirror_scheduler(conf config.Config) {
 			config: conf
 		}
 		now := int(time.now().unix())
+		stale_before := now - mirror_sync_lease_seconds
 		mirrors := sql app.db {
 			select from RepoMirror where enabled == true && next_update_at <= now
-			&& is_syncing == false
+			&& (is_syncing == false || sync_started_at <= stale_before)
 		} or { []RepoMirror{} }
 		for mirror in mirrors {
 			app.sync_repo_mirror(mirror, false) or { app.warn('Scheduled mirror failed: ${err}') }

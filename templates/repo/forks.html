@@ -7,9 +7,9 @@
 		@include '../layout/header.html'
 		<div class="content">
 			@include '../layout/repo_menu.html'
-			<h1>Forks</h1>
+			<h1>Fork network</h1>
 			@if forks.len == 0
-				<p>This repository has no visible forks.</p>
+				<p>This repository has no other visible fork-network members.</p>
 			@else
 				@for listed_repo in forks
 					<div class="repo-list-item">

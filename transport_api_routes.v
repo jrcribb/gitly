@@ -4,6 +4,8 @@ module main
 
 import veb
 import validation
+import git
+import rand
 
 struct ApiSshKeyView {
 	id           int
@@ -45,6 +47,7 @@ struct ApiMirrorView {
 	last_error           string
 	consecutive_failures int
 	is_syncing           bool
+	sync_started_at      int
 }
 
 struct ApiForkSyncView {
@@ -83,9 +86,12 @@ pub fn (mut app App) api_v1_create_cross_repo_pull(mut ctx Context, username str
 	}
 	mut compare_ref := head
 	if source.id != target.id {
-		compare_ref = 'refs/gitly-comparisons/${user.id}/${source.id}'
+		compare_ref = 'refs/gitly-comparisons/${user.id}/${source.id}/${rand.ulid()}'
 		fetch_fork_branch_into(target, source, head, compare_ref) or {
 			return ctx.transport_api_error(409, err.str())
+		}
+		defer {
+			git.Git.exec_in_dir(target.git_dir, ['update-ref', '-d', compare_ref])
 		}
 	}
 	if target.list_commits_between(base, compare_ref).len == 0 {
@@ -172,6 +178,7 @@ fn (mirror RepoMirror) to_api() ApiMirrorView {
 		last_error:           mirror.last_error
 		consecutive_failures: mirror.consecutive_failures
 		is_syncing:           mirror.is_syncing
+		sync_started_at:      mirror.sync_started_at
 	}
 }
 
@@ -366,6 +373,10 @@ pub fn (mut app App) api_v1_create_repo_fork(mut ctx Context, username string, r
 	if _ := app.find_repo_by_name_and_username(name, owner_name) {
 		return ctx.transport_api_error(409, 'A repository with that name already exists')
 	}
+	if app.namespace_has_fork_in_network(source.id, owner_name) {
+		return ctx.transport_api_error(409,
+			'The destination namespace already contains a repository in this fork network')
+	}
 	if owner_name == user.username && !user.is_admin
 		&& app.get_count_user_repos(user.id) >= max_user_repos {
 		return ctx.transport_api_error(409, 'Repository limit reached')
@@ -445,6 +456,31 @@ pub fn (mut app App) api_v1_sync_repo_mirror(mut ctx Context, username string, r
 		return ctx.api_not_found()
 	}
 	app.sync_repo_mirror(mirror, false) or { return ctx.transport_api_error(409, err.str()) }
+	updated := app.find_repo_mirror(mirror.id) or { return ctx.api_not_found() }
+	return ctx.json(updated.to_api())
+}
+
+@['/api/v1/repos/:username/:repo_name/mirrors/:id/state'; post]
+pub fn (mut app App) api_v1_set_repo_mirror_state(mut ctx Context, username string, repo_name string, id string) veb.Result {
+	user := app.api_user_from_ctx(ctx) or { return ctx.api_unauthorized() }
+	repo := app.find_repo_by_name_and_username(repo_name, username) or {
+		return ctx.api_not_found()
+	}
+	if app.repo_access_level(user.id, repo) < project_access_maintainer {
+		return ctx.transport_api_error(403, 'Maintainer access is required')
+	}
+	mirror := app.find_repo_mirror(id.int()) or { return ctx.api_not_found() }
+	if mirror.repo_id != repo.id {
+		return ctx.api_not_found()
+	}
+	raw_enabled := ctx.form['enabled'].trim_space().to_lower()
+	if raw_enabled !in ['true', 'false', '1', '0'] {
+		return ctx.transport_api_error(400, 'enabled must be true or false')
+	}
+	enabled := raw_enabled in ['true', '1']
+	app.set_repo_mirror_enabled(repo.id, mirror.id, enabled) or {
+		return ctx.transport_api_error(409, err.str())
+	}
 	updated := app.find_repo_mirror(mirror.id) or { return ctx.api_not_found() }
 	return ctx.json(updated.to_api())
 }

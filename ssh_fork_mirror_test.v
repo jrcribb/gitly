@@ -3,6 +3,7 @@ module main
 import os
 import config
 import git
+import time
 
 fn transport_test_app(root string) !(&App, string) {
 	db_path := os.join_path(root, 'transport.sqlite')
@@ -85,6 +86,7 @@ fn test_forks_track_lineage_and_only_fast_forward_from_upstream() {
 		bare, work := initialize_transport_origin(root)!
 		insert_transport_user(mut app, 1, 'alice')!
 		insert_transport_user(mut app, 2, 'bob')!
+		insert_transport_user(mut app, 3, 'charlie')!
 		app.add_repo(Repo{
 			id:             1
 			git_dir:        bare
@@ -102,6 +104,29 @@ fn test_forks_track_lineage_and_only_fast_forward_from_upstream() {
 		assert relation.root_repo_id == source.id
 		assert app.count_repo_forks(source.id) == 1
 		assert transport_git(['-C', created.git_dir, 'remote', 'get-url', 'upstream']) == bare
+		descendant := app.create_fork(created, 'charlie', 3, 'project', 'nested fork', true, false, 3)!
+		descendant_relation := app.find_fork_by_repo(descendant.id) or {
+			panic('descendant fork relationship missing')
+		}
+		assert descendant_relation.source_repo_id == created.id
+		assert descendant_relation.root_repo_id == source.id
+		assert app.count_repo_forks(source.id) == 2
+		assert app.count_repo_forks(created.id) == 2
+		assert app.find_repo_forks(source.id).map(it.id).contains(descendant.id)
+		assert app.find_repo_forks(created.id).map(it.id).contains(source.id)
+		mut duplicate_namespace_rejected := false
+		app.create_fork(source, 'bob', 2, 'another-project', '', true, false, 2) or {
+			duplicate_namespace_rejected = true
+		}
+		assert duplicate_namespace_rejected
+		transport_git(['-C', work, 'checkout', '-b', 'next-default'])
+		next_default_sha := transport_commit(work, 'next default\n', 'next default')
+		transport_git(['-C', work, 'push', 'origin', 'next-default'])
+		transport_git(['-C', work, 'checkout', 'main'])
+		app.update_repo_primary_branch(source.id, 'next-default')!
+		default_only_sync := app.sync_fork(created, relation, true)!
+		assert default_only_sync.updated == ['next-default']
+		assert transport_git(['-C', created.git_dir, 'rev-parse', 'next-default']) == next_default_sha
 
 		second := transport_commit(work, 'second\n', 'second')
 		transport_git(['-C', work, 'push', 'origin', 'main'])
@@ -137,6 +162,13 @@ fn test_forks_track_lineage_and_only_fast_forward_from_upstream() {
 			panic('fork relationship missing')
 		}
 		assert stored_relation.last_sync_error == 'The upstream repository no longer exists'
+		app.delete_repository(created.id, created.git_dir, created.name)!
+		reparented := app.find_fork_by_repo(descendant.id) or {
+			panic('descendant relationship missing after upstream deletion')
+		}
+		assert reparented.source_repo_id == source.id
+		assert reparented.root_repo_id == source.id
+		assert app.repos_share_fork_network(source.id, descendant.id)
 	} $else {
 		assert true
 	}
@@ -542,4 +574,119 @@ fn test_local_push_and_pull_mirror_ref_updates() {
 	} $else {
 		assert true
 	}
+}
+
+fn test_mirror_sync_claim_prevents_overlap_and_recovers_stale_leases() {
+	$if sqlite ? {
+		root := os.join_path(os.temp_dir(), 'gitly_mirror_claim_${os.getpid()}')
+		os.rmdir_all(root) or {}
+		os.mkdir_all(root)!
+		mut app, db_path := transport_test_app(root)!
+		defer {
+			app.db.close() or {}
+			os.rmdir_all(root) or {}
+			for suffix in ['', '-shm', '-wal'] {
+				os.rm(db_path + suffix) or {}
+			}
+		}
+		mirror := RepoMirror{
+			id: 1
+			repo_id: 1
+			created_by: 1
+			direction: 'pull'
+			url: 'https://example.test/project.git'
+			enabled: true
+			interval_minutes: 5
+		}
+		sql app.db {
+			insert mirror into RepoMirror
+		}!
+		claimed := app.claim_repo_mirror(mirror.id)!
+		assert claimed.is_syncing
+		assert claimed.sync_started_at > 0
+		mut overlap_rejected := false
+		app.claim_repo_mirror(mirror.id) or { overlap_rejected = true }
+		assert overlap_rejected
+
+		stale_started_at := int(time.now().unix()) - mirror_sync_lease_seconds - 1
+		mirror_id := mirror.id
+		sql app.db {
+			update RepoMirror set sync_started_at = stale_started_at where id == mirror_id
+		}!
+		reclaimed := app.claim_repo_mirror(mirror.id)!
+		assert reclaimed.is_syncing
+		assert reclaimed.sync_started_at > stale_started_at
+		app.record_mirror_result(RepoMirror{
+			...claimed
+			sync_started_at: stale_started_at
+		}, 'stale worker result')
+		still_claimed := app.find_repo_mirror(mirror.id) or { panic('mirror missing') }
+		assert still_claimed.is_syncing
+		app.record_mirror_result(reclaimed, '')
+		finished := app.find_repo_mirror(mirror.id) or { panic('mirror missing') }
+		assert !finished.is_syncing
+		assert finished.sync_started_at == 0
+		app.set_repo_mirror_enabled(mirror.repo_id, mirror.id, false)!
+		mut paused_rejected := false
+		app.claim_repo_mirror(mirror.id) or { paused_rejected = true }
+		assert paused_rejected
+		app.set_repo_mirror_enabled(mirror.repo_id, mirror.id, true)!
+		resumed := app.claim_repo_mirror(mirror.id)!
+		assert resumed.enabled
+	} $else {
+		assert true
+	}
+}
+
+fn test_mirror_sync_lease_column_is_migrated() {
+	$if sqlite ? {
+		root := os.join_path(os.temp_dir(), 'gitly_mirror_lease_migration_${os.getpid()}')
+		os.rmdir_all(root) or {}
+		os.mkdir_all(root)!
+		mut app, db_path := transport_test_app(root)!
+		defer {
+			app.db.close() or {}
+			os.rmdir_all(root) or {}
+			for suffix in ['', '-shm', '-wal'] {
+				os.rm(db_path + suffix) or {}
+			}
+		}
+		app.db.exec('alter table ${sql_table('RepoMirror')} drop column ${sql_table('sync_started_at')}')!
+		assert !db_column_exists(mut app.db, 'RepoMirror', 'sync_started_at')!
+		app.migrate_tables()!
+		assert db_column_exists(mut app.db, 'RepoMirror', 'sync_started_at')!
+	} $else {
+		assert true
+	}
+}
+
+fn test_mirror_ref_publication_is_atomic() {
+	root := os.join_path(os.temp_dir(), 'gitly_mirror_atomic_refs_${os.getpid()}')
+	os.rmdir_all(root) or {}
+	os.mkdir_all(root)!
+	defer {
+		os.rmdir_all(root) or {}
+	}
+	bare, work := initialize_transport_origin(root)!
+	old_oid := transport_git(['-C', bare, 'rev-parse', 'main'])
+	new_oid := transport_commit(work, 'new snapshot\n', 'new snapshot')
+	transport_git(['-C', work, 'push', 'origin', 'main'])
+	transport_git(['-C', bare, 'update-ref', 'refs/heads/first', old_oid])
+	transport_git(['-C', bare, 'update-ref', 'refs/heads/second', old_oid])
+	mut rejected := false
+	update_mirror_refs(bare, [
+		MirrorRefUpdate{
+			ref_name: 'refs/heads/first'
+			new_oid:  new_oid
+			old_oid:  old_oid
+		},
+		MirrorRefUpdate{
+			ref_name: 'refs/heads/second'
+			new_oid:  new_oid
+			old_oid:  zero_oid_like(old_oid)!
+		},
+	]) or { rejected = true }
+	assert rejected
+	assert transport_git(['-C', bare, 'rev-parse', 'first']) == old_oid
+	assert transport_git(['-C', bare, 'rev-parse', 'second']) == old_oid
 }

@@ -521,8 +521,23 @@ fn (mut app App) delete_repository(id int, path string, name string) ! {
 	sql tx {
 		delete from RepoTransfer where repo_id == repo_id
 	}!
+	fork_rows := sql tx {
+		select from RepoFork where repo_id == repo_id limit 1
+	}!
+	if fork_rows.len == 1 && fork_rows[0].source_repo_id > 0 {
+		upstream_repo_id := fork_rows[0].source_repo_id
+		// A fork of this fork can continue synchronizing from the nearest
+		// surviving ancestor after the intermediate repository is removed.
+		sql tx {
+			update RepoFork set source_repo_id = upstream_repo_id where source_repo_id == repo_id
+		}!
+	}
 	sql tx {
-		delete from RepoFork where repo_id == repo_id || source_repo_id == repo_id
+		// Preserve descendant lineage when an upstream repository is removed.
+		// Their source id may become unavailable for synchronization, but keeping
+		// the edge and root id retains the fork network and existing cross-fork
+		// merge-request identity.
+		delete from RepoFork where repo_id == repo_id
 	}!
 	sql tx {
 		delete from RepoMirror where repo_id == repo_id

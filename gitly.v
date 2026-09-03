@@ -577,6 +577,7 @@ fn (mut app App) migrate_tables() ! {
 	app.add_missing_column('PrApproval', 'approved_head_oid', "TEXT NOT NULL DEFAULT ''")!
 	app.add_missing_column('RepoMirror', 'encrypted_ssh_key', "TEXT NOT NULL DEFAULT ''")!
 	app.add_missing_column('RepoMirror', 'ssh_known_hosts', "TEXT NOT NULL DEFAULT ''")!
+	app.add_missing_column('RepoMirror', 'sync_started_at', 'INTEGER NOT NULL DEFAULT 0')!
 	app.add_missing_column('Token', 'created_at', 'INTEGER NOT NULL DEFAULT 0')!
 	app.add_missing_column('Token', 'expires_at', 'INTEGER NOT NULL DEFAULT 0')!
 	// Tokens created before scopes/expiry existed retain their historical full
@@ -597,7 +598,10 @@ fn (mut app App) migrate_tables() ! {
 	app.db.exec('create index if not exists idx_commit_repo_created on ${sql_table('Commit')} (repo_id, created_at desc)')!
 	app.db.exec('create unique index if not exists idx_repo_owner_name_active on ${sql_table('Repo')} (user_name, name) where is_deleted is false')!
 	app.db.exec('create index if not exists idx_repo_fork_source on ${sql_table('RepoFork')} (source_repo_id, created_at desc)')!
+	app.db.exec('create index if not exists idx_repo_fork_root on ${sql_table('RepoFork')} (root_repo_id, created_at desc)')!
 	app.db.exec('create index if not exists idx_repo_mirror_due on ${sql_table('RepoMirror')} (enabled, next_update_at)')!
+	app.db.exec('delete from ${sql_table('ProjectMember')} where ${sql_table('id')} not in (\n\t\tselect min(${sql_table('id')}) from ${sql_table('ProjectMember')}\n\t\tgroup by ${sql_table('repo_id')}, ${sql_table('user_id')}\n\t)')!
+	app.db.exec('create unique index if not exists idx_project_member_unique on ${sql_table('ProjectMember')} (repo_id, user_id)')!
 	app.db.exec('create index if not exists idx_issue_assignee_user on ${sql_table('IssueAssignee')} (user_id, issue_id)')!
 	// Old imports used a read-before-insert check, which could still race. Remove
 	// any duplicate links before enforcing the relationship at the database
