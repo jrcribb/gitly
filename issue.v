@@ -9,19 +9,22 @@ import highlight
 struct Issue {
 	id int @[primary; sql: serial]
 mut:
-	author_id      int
-	repo_id        int
-	is_pr          bool
-	assigned       []int @[skip]
-	labels         []Label @[skip]
-	comments_count int
-	title          string
-	text           string
-	created_at     int
-	status         IssueStatus
-	linked_issues  []int @[skip]
-	repo_author    string @[skip]
-	repo_name      string @[skip]
+	author_id             int
+	repo_id               int
+	is_pr                 bool
+	assigned              []int @[skip]
+	labels                []Label @[skip]
+	comments_count        int
+	title                 string
+	text                  string
+	created_at            int
+	status                IssueStatus
+	linked_issues         []int @[skip]
+	milestone_id          int
+	iteration_id          int
+	time_estimate_minutes int
+	repo_author           string @[skip]
+	repo_name             string @[skip]
 }
 
 enum IssueStatus {
@@ -35,6 +38,7 @@ mut:
 	repo_id int
 	name    string
 	color   string
+	scope   string
 }
 
 struct IssueLabel {
@@ -64,7 +68,8 @@ fn (mut app App) add_issue_returning_id(repo_id int, author_id int, title string
 
 fn (mut app App) add_imported_issue_returning_id(repo_id int, author_id int, title string, text string, created_at int) !int {
 	return db_insert_returning_id(mut app.db, 'Issue', ['author_id', 'repo_id', 'is_pr',
-		'comments_count', 'title', 'text', 'created_at', 'status'], [
+		'comments_count', 'title', 'text', 'created_at', 'status', 'milestone_id', 'iteration_id',
+		'time_estimate_minutes'], [
 		author_id.str(),
 		repo_id.str(),
 		db_bool_value(false),
@@ -73,12 +78,16 @@ fn (mut app App) add_imported_issue_returning_id(repo_id int, author_id int, tit
 		text,
 		created_at.str(),
 		int(IssueStatus.open).str(),
+		'0',
+		'0',
+		'0',
 	])
 }
 
 fn (mut app App) find_or_create_label(repo_id int, name string, color string) !int {
 	clean_name := name.trim_space()
 	clean_color := normalize_label_color(color)!
+	scope, _ := parse_scoped_label(clean_name)
 	if repo_id <= 0 || !valid_short_name(clean_name) {
 		return error('invalid label')
 	}
@@ -88,10 +97,11 @@ fn (mut app App) find_or_create_label(repo_id int, name string, color string) !i
 	if existing.len > 0 {
 		return existing[0].id
 	}
-	return db_insert_returning_id(mut app.db, 'Label', ['repo_id', 'name', 'color'], [
+	return db_insert_returning_id(mut app.db, 'Label', ['repo_id', 'name', 'color', 'scope'], [
 		repo_id.str(),
 		clean_name,
 		clean_color,
+		scope,
 	])
 }
 
@@ -99,33 +109,66 @@ fn (mut app App) add_issue_label(issue_id int, label_id int) ! {
 	if issue_id <= 0 || label_id <= 0 {
 		return error('invalid issue label')
 	}
-	issues := sql app.db {
+	mut tx := db_begin_transaction(mut app.db)!
+	mut committed := false
+	defer {
+		if !committed {
+			tx.rollback() or {}
+		}
+	}
+	locked := tx.execute('update ${sql_table('Issue')} set ${sql_table('id')} = ${sql_table('id')}
+		where ${sql_table('id')} = ${issue_id} returning ${sql_table('repo_id')}')!
+	if locked.len != 1 {
+		return error('issue not found')
+	}
+	issues := sql tx {
 		select from Issue where id == issue_id limit 1
 	}!
-	labels := sql app.db {
+	labels := sql tx {
 		select from Label where id == label_id limit 1
 	}!
 	if issues.len != 1 || labels.len != 1 || issues.first().repo_id != labels.first().repo_id {
 		return error('issue and label must belong to the same repository')
 	}
-	existing := sql app.db {
+	if labels.first().scope != '' {
+		scope := labels.first().scope
+		label_repo_id := labels.first().repo_id
+		repo_labels := sql tx {
+			select from Label where repo_id == label_repo_id && scope == scope
+		} or { []Label{} }
+		for scoped_label in repo_labels {
+			if scoped_label.id != label_id {
+				other_id := scoped_label.id
+				sql tx {
+					delete from IssueLabel where issue_id == issue_id && label_id == other_id
+				}!
+			}
+		}
+	}
+	existing := sql tx {
 		select from IssueLabel where issue_id == issue_id && label_id == label_id limit 1
 	} or { []IssueLabel{} }
 	if existing.len > 0 {
+		tx.commit()!
+		committed = true
 		return
 	}
 	link := IssueLabel{
 		issue_id: issue_id
 		label_id: label_id
 	}
-	sql app.db {
+	sql tx {
 		insert link into IssueLabel
 	} or {
 		if is_unique_constraint_error(err) {
+			tx.rollback() or {}
+			committed = true
 			return
 		}
 		return err
 	}
+	tx.commit()!
+	committed = true
 }
 
 fn (app &App) get_issue_labels(issue_id int) []Label {
@@ -179,6 +222,7 @@ fn (app &App) find_repo_label_by_id(repo_id int, label_id int) ?Label {
 fn (mut app App) add_repo_label(repo_id int, name string, color string) !int {
 	clean_name := name.trim_space()
 	clean_color := normalize_label_color(color)!
+	scope, _ := parse_scoped_label(clean_name)
 	if repo_id <= 0 || !valid_short_name(clean_name) {
 		return error('invalid label name')
 	}
@@ -188,16 +232,18 @@ fn (mut app App) add_repo_label(repo_id int, name string, color string) !int {
 	if existing.len > 0 {
 		return error('a label with that name already exists')
 	}
-	return db_insert_returning_id(mut app.db, 'Label', ['repo_id', 'name', 'color'], [
+	return db_insert_returning_id(mut app.db, 'Label', ['repo_id', 'name', 'color', 'scope'], [
 		repo_id.str(),
 		clean_name,
 		clean_color,
+		scope,
 	])
 }
 
 fn (mut app App) update_repo_label(repo_id int, label_id int, name string, color string) ! {
 	clean_name := name.trim_space()
 	clean_color := normalize_label_color(color)!
+	scope, _ := parse_scoped_label(clean_name)
 	if repo_id <= 0 || label_id <= 0 || !valid_short_name(clean_name) {
 		return error('invalid label')
 	}
@@ -209,8 +255,37 @@ fn (mut app App) update_repo_label(repo_id int, label_id int, name string, color
 		return error('a label with that name already exists')
 	}
 	sql app.db {
-		update Label set name = clean_name, color = clean_color where id == label_id && repo_id == repo_id
+		update Label set name = clean_name, color = clean_color, scope = scope where id == label_id && repo_id == repo_id
 	}!
+}
+
+fn parse_scoped_label(name string) (string, string) {
+	parts := name.split('::')
+	if parts.len != 2 {
+		return '', name.trim_space()
+	}
+	scope := parts[0].trim_space().to_lower()
+	value := parts[1].trim_space()
+	if scope == '' || value == '' {
+		return '', name.trim_space()
+	}
+	return scope, value
+}
+
+fn (mut app App) backfill_scoped_labels() ! {
+	labels := sql app.db {
+		select from Label
+	}!
+	for label in labels {
+		scope, _ := parse_scoped_label(label.name)
+		if label.scope == scope {
+			continue
+		}
+		id := label.id
+		sql app.db {
+			update Label set scope = scope where id == id
+		}!
+	}
 }
 
 fn (mut app App) remove_issue_label(issue_id int, label_id int) ! {

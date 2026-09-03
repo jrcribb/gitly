@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+	<head>@include '../layout/head.html'</head>
+	<body>
+		@include '../layout/header.html'
+		<div class="content">
+			@include '../layout/repo_menu.html'
+			<h1>Service desk</h1>
+			<p>The service desk creates issues from authenticated inbound integrations without granting repository access.</p>
+			@if created_secret != ''
+				<div class="form-success"><strong>Copy this endpoint token now:</strong> <code>@created_secret</code><p>POST requester_email, subject, body, and an optional external_id to <code>/api/v1/service-desk/@created_secret</code>.</p></div>
+			@end
+			@if repo.service_desk_enabled
+				<p>Service desk is enabled. Rotating the token invalidates the previous endpoint immediately.</p>
+				<form method="post" action="/@repo.user_name/@repo.name/settings/service-desk/enable"><button type="submit">Rotate token</button></form>
+				<form method="post" action="/@repo.user_name/@repo.name/settings/service-desk/disable"><button type="submit">Disable</button></form>
+			@else
+				<form method="post" action="/@repo.user_name/@repo.name/settings/service-desk/enable"><button type="submit">Enable service desk</button></form>
+			@end
+		</div>
+		@include '../layout/footer.html'
+	</body>
+</html>

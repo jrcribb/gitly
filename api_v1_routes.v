@@ -549,11 +549,15 @@ struct ApiMilestoneView {
 }
 
 struct ApiProjectView {
-	id          int
-	repo_id     int
-	name        string
-	description string
-	created_at  int
+	id           int
+	repo_id      int
+	name         string
+	description  string
+	created_at   int
+	label_id     int
+	milestone_id int
+	iteration_id int
+	assignee_id  int
 }
 
 struct ApiProjectCardView {
@@ -571,6 +575,7 @@ struct ApiProjectColumnView {
 	project_id int
 	name       string
 	position   int
+	wip_limit  int
 	cards      []ApiProjectCardView
 }
 
@@ -626,6 +631,10 @@ fn (mut app App) project_to_api(p Project) ApiProjectView {
 		name: p.name
 		description: p.description
 		created_at: p.created_at
+		label_id: p.label_id
+		milestone_id: p.milestone_id
+		iteration_id: p.iteration_id
+		assignee_id: p.assignee_id
 	}
 }
 
@@ -891,6 +900,7 @@ pub fn (mut app App) api_v1_repo_project(mut ctx Context, username string, repo_
 			project_id: col.project_id
 			name: col.name
 			position: col.position
+			wip_limit: col.wip_limit
 			cards: card_views
 		}
 	}
@@ -917,11 +927,75 @@ pub fn (mut app App) api_v1_create_project(mut ctx Context, username string, rep
 	if !valid_short_name(name) || !valid_body(desc) {
 		return ctx.api_error_response(400, 'Bad Request', 'name is required and content must be within size limits')
 	}
-	new_id := app.add_project(repo.id, name, desc) or {
+	new_id := app.add_advanced_project(repo.id, name, desc, ctx.form['label_id'].int(), ctx.form['milestone_id'].int(), ctx.form['iteration_id'].int(), ctx.form['assignee_id'].int()) or {
 		return ctx.api_error_response(500, 'Internal Server Error', 'failed to create project')
 	}
 	project := app.find_project(new_id) or { return ctx.api_not_found() }
 	return ctx.json(app.project_to_api(project))
+}
+
+@['/api/v1/repos/:username/:repo_name/projects/:id/columns'; post]
+pub fn (mut app App) api_v1_add_project_column(mut ctx Context, username string,
+	repo_name string, id string) veb.Result {
+	user := app.api_user_from_ctx(ctx) or { return ctx.api_unauthorized() }
+	repo := app.find_repo_by_name_and_username(repo_name, username) or { return ctx.api_not_found() }
+	project := app.find_project(id.int()) or { return ctx.api_not_found() }
+	if project.repo_id != repo.id || app.repo_access_level(user.id, repo) < project_access_developer {
+		return ctx.api_error_response(403, 'Forbidden', 'Developer access is required')
+	}
+	column_id := app.add_project_column_with_limit(project.id, ctx.form['name'], app.list_project_columns(project.id).len, ctx.form['wip_limit'].int()) or {
+		return ctx.api_error_response(400, 'Bad Request', err.msg())
+	}
+	return ctx.json(app.find_project_column(column_id) or { return ctx.api_not_found() })
+}
+
+@['/api/v1/repos/:username/:repo_name/projects/:id/columns/:column_id/cards'; post]
+pub fn (mut app App) api_v1_add_project_card(mut ctx Context, username string,
+	repo_name string, id string, column_id string) veb.Result {
+	user := app.api_user_from_ctx(ctx) or { return ctx.api_unauthorized() }
+	repo := app.find_repo_by_name_and_username(repo_name, username) or { return ctx.api_not_found() }
+	project := app.find_project(id.int()) or { return ctx.api_not_found() }
+	column := app.find_project_column(column_id.int()) or { return ctx.api_not_found() }
+	if project.repo_id != repo.id || column.project_id != project.id
+		|| app.repo_access_level(user.id, repo) < project_access_developer {
+		return ctx.api_error_response(403, 'Forbidden', 'Developer access is required')
+	}
+	issue_id := ctx.form['issue_id'].int()
+	title := if issue_id > 0 {
+		issue := app.find_issue_by_id(issue_id) or { return ctx.api_not_found() }
+		issue.title
+	} else {
+		ctx.form['title']
+	}
+	app.add_project_card_for_issue(column.id, title, ctx.form['note'], issue_id) or {
+		return ctx.api_error_response(400, 'Bad Request', err.msg())
+	}
+	card := app.list_project_cards(column.id).last()
+	return ctx.json(app.project_card_to_api(card))
+}
+
+@['/api/v1/repos/:username/:repo_name/projects/:id/cards/:card_id/move'; post]
+pub fn (mut app App) api_v1_move_project_card(mut ctx Context, username string,
+	repo_name string, id string, card_id string) veb.Result {
+	user := app.api_user_from_ctx(ctx) or { return ctx.api_unauthorized() }
+	repo := app.find_repo_by_name_and_username(repo_name, username) or { return ctx.api_not_found() }
+	project := app.find_project(id.int()) or { return ctx.api_not_found() }
+	card := app.find_project_card(card_id.int()) or { return ctx.api_not_found() }
+	source := app.find_project_column(card.column_id) or { return ctx.api_not_found() }
+	destination := app.find_project_column(ctx.form['column_id'].int()) or {
+		return ctx.api_not_found()
+	}
+	if project.repo_id != repo.id || source.project_id != project.id
+		|| destination.project_id != project.id
+		|| app.repo_access_level(user.id, repo) < project_access_developer {
+		return ctx.api_error_response(403, 'Forbidden', 'Developer access is required')
+	}
+	app.move_project_card(card.id, destination.id) or {
+		return ctx.api_error_response(409, 'Conflict', err.msg())
+	}
+	return ctx.json(app.project_card_to_api(app.find_project_card(card.id) or {
+		return ctx.api_not_found()
+	}))
 }
 
 @['/api/v1/repos/:username/:repo_name/webhooks']

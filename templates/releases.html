@@ -10,6 +10,20 @@
 			@include 'layout/repo_menu.html'
 
 			<h1>Releases</h1>
+			@if ctx.form_error != ''
+				<div class="form-error">@ctx.form_error</div>
+			@end
+			@if can_publish
+				<form class="settings-form" method="post" action="/@repo.user_name/@repo.name/releases">
+					<label>Tag <select name="tag_name">
+						@for tag in tags
+							<option value="@tag.name">@tag.name</option>
+						@end
+					</select></label>
+					<textarea name="notes" placeholder="Release notes"></textarea>
+					<button type="submit">Publish release</button>
+				</form>
+			@end
 
 			@if releases.len > 0
 				.releases {
@@ -24,6 +38,9 @@
 							<strong>Notes:</strong> @r.notes<br/>
 							<a href="/@repo.user_name/@repo.name/archive/@{r.tag_name}?format=zip">Download zip</a>,
 							<a href="/@repo.user_name/@repo.name/archive/@{r.tag_name}?format=tar">download tar</a>
+							@if can_publish
+								<form class="inline-form" method="post" action="/@repo.user_name/@repo.name/releases/@r.id/delete"><button type="submit">Delete release</button></form>
+							@end
 						}
 					@end
 				}

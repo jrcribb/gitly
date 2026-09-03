@@ -46,16 +46,20 @@ fn main() {
 		return
 	}
 	mut app := new_app()!
-	spawn run_mirror_scheduler(app.config)
 
+	spawn run_mirror_scheduler(app.config)
+	spawn run_housekeeping_scheduler(app.config)
 	app.use(handler: app.before_request)
-	app.route_use('/:username/:repo_name/pull/:id/files', handler: minify_pr_files_html, after: true)
+	app.route_use('/:username/:repo_name/pull/:id/files',
+		handler: minify_pr_files_html
+		after: true
+	)
 
 	app.port = get_port(app.config)
 
 	veb.run_at[App, Context](mut app,
-		port:               app.port
-		family:             .ip
+		port: app.port
+		family: .ip
 		timeout_in_seconds: 5
 	) or { panic(err) }
 }

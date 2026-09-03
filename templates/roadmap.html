@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+	<head>@include 'layout/head.html'</head>
+	<body>
+		@include 'layout/header.html'
+		<div class="content"><h1>@group.display_name roadmap</h1>
+			@for epic in epics
+				<article class="issue-row"><h2>@epic.title</h2><p>@epic.description</p><p>@epic.starts_at – @epic.due_at</p></article>
+			@end
+			<h2>Iterations</h2>
+			@for iteration in iterations
+				<p><strong>@iteration.title</strong> @iteration.starts_at – @iteration.due_at</p>
+			@end
+		</div>
+		@include 'layout/footer.html'
+	</body>
+</html>

@@ -187,6 +187,11 @@ pub fn (mut app App) issue(mut ctx Context, username string, repo_name string, i
 	assignees := app.find_issue_assignees(issue)
 	issue.assigned = assignees.map(it.id)
 	issue.labels = app.get_issue_labels(issue.id)
+	planning := app.issue_planning_summary(issue)
+	mut iterations := []Iteration{}
+	if org := app.get_org_by_name(repo.user_name) {
+		iterations = app.find_group_iterations(org.id)
+	}
 	can_manage := app.can_manage_issue(ctx, repo, issue)
 	can_manage_assignees := can_manage
 	mut assignable_users := []User{}

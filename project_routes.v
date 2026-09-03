@@ -31,9 +31,16 @@ pub fn (mut app App) new_project(mut ctx Context, username string, repo_name str
 	if !repo.projects_enabled() {
 		return ctx.not_found()
 	}
-	if !app.can_admin_repo(ctx, repo) {
+	if app.repo_access_level(ctx.user.id, repo) < project_access_developer {
 		return ctx.redirect('/${username}/${repo_name}/projects')
 	}
+	labels := app.list_repo_labels(repo.id)
+	milestones := app.list_repo_milestones(repo.id)
+	mut iterations := []Iteration{}
+	if org := app.get_org_by_name(repo.user_name) {
+		iterations = app.find_group_iterations(org.id)
+	}
+	members := app.find_issue_assignable_users(repo)
 	return $veb.html('templates/new/project.html')
 }
 
@@ -46,7 +53,7 @@ pub fn (mut app App) handle_create_project(mut ctx Context, username string, rep
 	if !repo.projects_enabled() {
 		return ctx.not_found()
 	}
-	if !app.can_admin_repo(ctx, repo) {
+	if app.repo_access_level(ctx.user.id, repo) < project_access_developer {
 		return ctx.redirect('/${username}/${repo_name}/projects')
 	}
 	name := ctx.form['name']
@@ -54,7 +61,7 @@ pub fn (mut app App) handle_create_project(mut ctx Context, username string, rep
 	if !valid_short_name(name) || !valid_body(desc) {
 		return ctx.redirect('/${username}/${repo_name}/projects/new')
 	}
-	id := app.add_project(repo.id, name, desc) or {
+	id := app.add_advanced_project(repo.id, name, desc, ctx.form['label_id'].int(), ctx.form['milestone_id'].int(), ctx.form['iteration_id'].int(), ctx.form['assignee_id'].int()) or {
 		ctx.error('Could not create project')
 		return ctx.redirect('/${username}/${repo_name}/projects/new')
 	}
@@ -79,10 +86,11 @@ pub fn (mut app App) view_project(mut ctx Context, username string, repo_name st
 	for col in columns {
 		views << ProjectColumnView{
 			column: col
-			cards:  app.list_project_cards(col.id)
+			cards: app.list_project_cards(col.id)
 		}
 	}
-	can_edit := app.can_admin_repo(ctx, repo)
+	can_edit := ctx.logged_in && app.repo_access_level(ctx.user.id, repo) >= project_access_developer
+	candidate_issues := app.board_candidate_issues(project)
 	return $veb.html('templates/project.html')
 }
 
@@ -96,7 +104,7 @@ pub fn (mut app App) handle_add_project_column(mut ctx Context, username string,
 		return ctx.not_found()
 	}
 	project := app.find_project(id.int()) or { return ctx.not_found() }
-	if project.repo_id != repo.id || !app.can_admin_repo(ctx, repo) {
+	if project.repo_id != repo.id || app.repo_access_level(ctx.user.id, repo) < project_access_developer {
 		return ctx.redirect('/${username}/${repo_name}/projects/${id}')
 	}
 	name := ctx.form['name']
@@ -104,7 +112,9 @@ pub fn (mut app App) handle_add_project_column(mut ctx Context, username string,
 		return ctx.redirect('/${username}/${repo_name}/projects/${id}')
 	}
 	pos := app.list_project_columns(project.id).len
-	app.add_project_column(project.id, name, pos) or {}
+	app.add_project_column_with_limit(project.id, name, pos, ctx.form['wip_limit'].int()) or {
+		ctx.error(err.msg())
+	}
 	return ctx.redirect('/${username}/${repo_name}/projects/${id}')
 }
 
@@ -118,7 +128,7 @@ pub fn (mut app App) handle_delete_project_column(mut ctx Context, username stri
 		return ctx.not_found()
 	}
 	project := app.find_project(id.int()) or { return ctx.not_found() }
-	if project.repo_id != repo.id || !app.can_admin_repo(ctx, repo) {
+	if project.repo_id != repo.id || app.repo_access_level(ctx.user.id, repo) < project_access_developer {
 		return ctx.redirect('/${username}/${repo_name}/projects/${id}')
 	}
 	col := app.find_project_column(col_id.int()) or { return ctx.not_found() }
@@ -139,7 +149,7 @@ pub fn (mut app App) handle_add_project_card(mut ctx Context, username string, r
 		return ctx.not_found()
 	}
 	project := app.find_project(id.int()) or { return ctx.not_found() }
-	if project.repo_id != repo.id || !app.can_admin_repo(ctx, repo) {
+	if project.repo_id != repo.id || app.repo_access_level(ctx.user.id, repo) < project_access_developer {
 		return ctx.redirect('/${username}/${repo_name}/projects/${id}')
 	}
 	col := app.find_project_column(col_id.int()) or { return ctx.not_found() }
@@ -148,10 +158,17 @@ pub fn (mut app App) handle_add_project_card(mut ctx Context, username string, r
 	}
 	title := ctx.form['title']
 	note := ctx.form['note']
-	if !valid_title(title) || !valid_body(note) {
+	issue_id := ctx.form['issue_id'].int()
+	if (issue_id <= 0 && !valid_title(title)) || !valid_body(note) {
 		return ctx.redirect('/${username}/${repo_name}/projects/${id}')
 	}
-	app.add_project_card(col.id, title, note) or {}
+	card_title := if issue_id > 0 {
+		issue := app.find_issue_by_id(issue_id) or { return ctx.not_found() }
+		issue.title
+	} else {
+		title
+	}
+	app.add_project_card_for_issue(col.id, card_title, note, issue_id) or { ctx.error(err.msg()) }
 	return ctx.redirect('/${username}/${repo_name}/projects/${id}')
 }
 
@@ -165,7 +182,7 @@ pub fn (mut app App) handle_delete_project_card(mut ctx Context, username string
 		return ctx.not_found()
 	}
 	project := app.find_project(id.int()) or { return ctx.not_found() }
-	if project.repo_id != repo.id || !app.can_admin_repo(ctx, repo) {
+	if project.repo_id != repo.id || app.repo_access_level(ctx.user.id, repo) < project_access_developer {
 		return ctx.redirect('/${username}/${repo_name}/projects/${id}')
 	}
 	card := app.find_project_card(card_id.int()) or { return ctx.not_found() }
@@ -187,7 +204,7 @@ pub fn (mut app App) handle_move_project_card(mut ctx Context, username string, 
 		return ctx.not_found()
 	}
 	project := app.find_project(id.int()) or { return ctx.not_found() }
-	if project.repo_id != repo.id || !app.can_admin_repo(ctx, repo) {
+	if project.repo_id != repo.id || app.repo_access_level(ctx.user.id, repo) < project_access_developer {
 		return ctx.redirect('/${username}/${repo_name}/projects/${id}')
 	}
 	new_col := ctx.form['column_id'].int()
@@ -197,7 +214,7 @@ pub fn (mut app App) handle_move_project_card(mut ctx Context, username string, 
 	if old_col.project_id != project.id || destination.project_id != project.id {
 		return ctx.not_found()
 	}
-	app.move_project_card(card.id, destination.id) or {}
+	app.move_project_card(card.id, destination.id) or { ctx.error(err.msg()) }
 	return ctx.redirect('/${username}/${repo_name}/projects/${id}')
 }
 

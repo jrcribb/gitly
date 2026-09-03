@@ -25,30 +25,33 @@ struct Repo {
 	latest_update_hash string @[skip]
 	latest_activity    time.Time @[skip]
 mut:
-	clone_url           string @[skip]
-	primary_branch      string
-	webhook_secret      string
-	tags_count          int
-	nr_open_issues      int @[orm: 'open_issues_count']
-	nr_open_prs         int @[orm: 'open_prs_count']
-	nr_releases         int @[orm: 'releases_count']
-	nr_branches         int @[orm: 'branches_count']
-	nr_tags             int
-	nr_stars            int @[orm: 'stars_count']
-	lang_stats          []LangStat @[skip]
-	created_at          int
-	nr_contributors     int
-	labels              []Label @[skip]
-	status              RepoStatus
-	msg_cache           map[string]string @[skip]
-	latest_commit_at    int @[skip]
-	activity_buckets    []int @[skip]
-	disable_discussions bool
-	disable_projects    bool
-	disable_milestones  bool
-	disable_wiki        bool
-	is_pinned           bool
-	required_approvals  int
+	clone_url               string @[skip]
+	primary_branch          string
+	webhook_secret          string
+	tags_count              int
+	nr_open_issues          int @[orm: 'open_issues_count']
+	nr_open_prs             int @[orm: 'open_prs_count']
+	nr_releases             int @[orm: 'releases_count']
+	nr_branches             int @[orm: 'branches_count']
+	nr_tags                 int
+	nr_stars                int @[orm: 'stars_count']
+	lang_stats              []LangStat @[skip]
+	created_at              int
+	nr_contributors         int
+	labels                  []Label @[skip]
+	status                  RepoStatus
+	msg_cache               map[string]string @[skip]
+	latest_commit_at        int @[skip]
+	activity_buckets        []int @[skip]
+	disable_discussions     bool
+	disable_projects        bool
+	disable_milestones      bool
+	disable_wiki            bool
+	is_pinned               bool
+	required_approvals      int
+	require_signed_commits  bool
+	service_desk_enabled    bool
+	service_desk_token_hash string
 }
 
 fn (r &Repo) discussions_enabled() bool {
@@ -547,6 +550,24 @@ fn (mut app App) delete_repository(id int, path string, name string) ! {
 	}!
 	sql tx {
 		delete from DeployKey where repo_id == repo_id
+	}!
+	sql tx {
+		delete from DeployToken where repo_id == repo_id
+	}!
+	sql tx {
+		delete from ProtectedTag where repo_id == repo_id
+	}!
+	sql tx {
+		delete from Snippet where repo_id == repo_id
+	}!
+	sql tx {
+		delete from RepoLfsObject where repo_id == repo_id
+	}!
+	sql tx {
+		delete from RepoHousekeeping where repo_id == repo_id
+	}!
+	sql tx {
+		delete from ServiceDeskTicket where repo_id == repo_id
 	}!
 	sql tx {
 		delete from ProtectedBranch where repo_id == repo_id

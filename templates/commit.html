@@ -23,6 +23,11 @@
 						<a class="commit-page__patch" href="@patch_url">%commit_view_patch</a>
 					</div>
 					<div class="commit-page__stats">
+						@if signature.verified
+							<span class="pr-status-badge pr-status--open">Verified SSH signature by @signature.signer</span>
+						@else
+							<span class="pr-status-badge pr-status--closed">Unverified signature</span>
+						@end
 						<span class="commit-page__files">@file_diffs.len %commit_files_changed</span>
 						<span class="commit-page__adds">+@all_adds</span>
 						<span class="commit-page__dels">-@all_dels</span>

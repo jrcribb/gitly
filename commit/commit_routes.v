@@ -129,6 +129,7 @@ pub fn (mut app App) commit(mut ctx Context, username string, repo_name string, 
 	}
 	raw_diff := diff_result.output
 	file_diffs := parse_unified_diff(raw_diff)
+	signature := app.verify_commit_ssh_signature(repo, commit.hash)
 
 	mut all_adds := 0
 	mut all_dels := 0

@@ -11,7 +11,7 @@ import rand
 pub fn (mut app App) new_file(username string, repo_name string, branch_name string) veb.Result {
 	repo := app.find_repo_by_name_and_username(repo_name, username) or { return ctx.not_found() }
 
-	if !ctx.logged_in || !app.user_can_push_branch(ctx.user.id, repo, branch_name)
+	if repo.require_signed_commits || !ctx.logged_in || !app.user_can_push_branch(ctx.user.id, repo, branch_name)
 		|| !is_safe_ref(branch_name) {
 		return ctx.redirect_to_repository(username, repo_name)
 	}
@@ -26,7 +26,8 @@ pub fn (mut app App) new_file(username string, repo_name string, branch_name str
 pub fn (mut app App) new_ci_file(username string, repo_name string) veb.Result {
 	repo := app.find_repo_by_name_and_username(repo_name, username) or { return ctx.not_found() }
 
-	if !ctx.logged_in || !app.user_can_push_branch(ctx.user.id, repo, repo.primary_branch) {
+	if repo.require_signed_commits || !ctx.logged_in
+		|| !app.user_can_push_branch(ctx.user.id, repo, repo.primary_branch) {
 		return ctx.redirect_to_repository(username, repo_name)
 	}
 
@@ -47,7 +48,7 @@ pub fn (mut app App) new_ci_file(username string, repo_name string) veb.Result {
 @['/:username/:repo_name/edit/:location...']
 pub fn (mut app App) edit_file(username string, repo_name string, location string) veb.Result {
 	repo := app.find_repo_by_name_and_username(repo_name, username) or { return ctx.not_found() }
-	if !ctx.logged_in || !app.user_can_write_repo(ctx.user.id, repo) {
+	if repo.require_signed_commits || !ctx.logged_in || !app.user_can_write_repo(ctx.user.id, repo) {
 		return ctx.redirect_to_repository(username, repo_name)
 	}
 	resolved := resolve_repo_ref_path(repo, location, true) or {
@@ -76,6 +77,10 @@ pub fn (mut app App) handle_update_file(username string, repo_name string) veb.R
 	if !ctx.logged_in || !app.user_can_write_repo(ctx.user.id, repo) {
 		return ctx.redirect_to_repository(username, repo_name)
 	}
+	if repo.require_signed_commits {
+		ctx.error('Web edits are disabled because this project requires user-signed commits')
+		return ctx.redirect_to_repository(username, repo_name)
+	}
 
 	file_path := ctx.form['file_path']
 	file_content := ctx.form['file_content']
@@ -100,8 +105,7 @@ pub fn (mut app App) handle_update_file(username string, repo_name string) veb.R
 		return $veb.html('templates/edit_file.html')
 	}
 
-	success := app.create_file_in_bare_repo(mut repo, actual_branch, file_path, file_content,
-		commit_message, ctx.user.username)
+	success := app.create_file_in_bare_repo(mut repo, actual_branch, file_path, file_content, commit_message, ctx.user.username)
 
 	if !success {
 		ctx.error('Failed to save file')
@@ -134,6 +138,10 @@ pub fn (mut app App) handle_create_file(username string, repo_name string) veb.R
 	}
 
 	if !ctx.logged_in || !app.user_can_write_repo(ctx.user.id, repo) {
+		return ctx.redirect_to_repository(username, repo_name)
+	}
+	if repo.require_signed_commits {
+		ctx.error('Web edits are disabled because this project requires user-signed commits')
 		return ctx.redirect_to_repository(username, repo_name)
 	}
 
@@ -169,8 +177,7 @@ pub fn (mut app App) handle_create_file(username string, repo_name string) veb.R
 		return $veb.html('templates/new_file.html')
 	}
 
-	success := app.create_file_in_bare_repo(mut repo, actual_branch, file_path, file_content,
-		commit_message, ctx.user.username)
+	success := app.create_file_in_bare_repo(mut repo, actual_branch, file_path, file_content, commit_message, ctx.user.username)
 
 	if !success {
 		ctx.error('Failed to create file')

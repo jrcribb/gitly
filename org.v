@@ -5,12 +5,14 @@ module main
 import time
 
 struct Org {
-	id            int    @[primary; sql: serial]
+	id            int @[primary; sql: serial]
 	name          string @[unique]
 	contact_email string
 	kind          string
 	created_at    time.Time
 	created_by    int
+	parent_id     int
+	display_name  string
 }
 
 struct OrgMember {
@@ -27,17 +29,34 @@ struct OrgMemberView {
 
 pub fn (mut app App) add_org(name string, contact_email string, kind string, created_by int) !int {
 	new_org := Org{
-		name:          name
+		name: name
 		contact_email: contact_email
-		kind:          kind
-		created_at:    time.now()
-		created_by:    created_by
+		kind: kind
+		created_at: time.now()
+		created_by: created_by
+		display_name: name
 	}
 	sql app.db {
 		insert new_org into Org
 	}!
 	row := app.get_org_by_name(name) or { return error('failed to load newly created org') }
 	return row.id
+}
+
+fn (mut app App) backfill_org_display_names() ! {
+	orgs := sql app.db {
+		select from Org
+	}!
+	for org in orgs {
+		if org.display_name != '' {
+			continue
+		}
+		id := org.id
+		display_name := org.name.all_after_last('/')
+		sql app.db {
+			update Org set display_name = display_name where id == id
+		}!
+	}
 }
 
 pub fn (app App) get_org_by_name(name string) ?Org {
@@ -62,9 +81,9 @@ pub fn (app App) get_org_by_id(id int) ?Org {
 
 pub fn (mut app App) add_org_member(org_id int, user_id int, role string) ! {
 	member := OrgMember{
-		org_id:  org_id
+		org_id: org_id
 		user_id: user_id
-		role:    role
+		role: role
 	}
 	sql app.db {
 		insert member into OrgMember

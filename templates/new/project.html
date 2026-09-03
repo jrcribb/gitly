@@ -18,6 +18,26 @@
 				<div class="field">
 					<textarea name="description" placeholder="%project_description_placeholder" rows="4"></textarea>
 				</div>
+				<div class="field"><label>Label filter <select name="label_id"><option value="0">Any label</option>
+					@for label in labels
+						<option value="@label.id">@label.name</option>
+					@end
+				</select></label></div>
+				<div class="field"><label>Milestone filter <select name="milestone_id"><option value="0">Any milestone</option>
+					@for milestone in milestones
+						<option value="@milestone.id">@milestone.title</option>
+					@end
+				</select></label></div>
+				<div class="field"><label>Iteration filter <select name="iteration_id"><option value="0">Any iteration</option>
+					@for iteration in iterations
+						<option value="@iteration.id">@iteration.title</option>
+					@end
+				</select></label></div>
+				<div class="field"><label>Assignee filter <select name="assignee_id"><option value="0">Anyone</option>
+					@for member in members
+						<option value="@member.id">@member.username</option>
+					@end
+				</select></label></div>
 				<button type="submit" class="settings-form__submit">%project_create</button>
 			</form>
 		</div>

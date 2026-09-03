@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+	<head>@include 'layout/head.html'</head>
+	<body>
+		@include 'layout/header.html'
+		<div class="content">
+			<h1>@group.display_name</h1>
+			<p><code>@group.name</code> · <a href="/groups/@group.id/roadmap">Roadmap</a></p>
+			@if ctx.form_error != ''
+				<div class="form-error">@ctx.form_error</div>
+			@end
+			<section><h2>Subgroups</h2>
+				@for subgroup in subgroups
+					<p><a href="/groups/@subgroup.id">@subgroup.display_name</a> <code>@subgroup.name</code></p>
+				@end
+				@if can_admin
+					<form method="post" action="/groups/@group.id/subgroups"><input name="display_name" placeholder="Name" required><input name="path" placeholder="path" required><button type="submit">Create subgroup</button></form>
+				@end
+			</section>
+			<section><h2>Epics</h2>
+				@for epic in epics
+					<article class="issue-row"><h3>@epic.title</h3><p>@epic.description</p><small>@epic.state</small>
+					@if can_admin
+						<form method="post" action="/groups/@group.id/epics/@epic.id/issues"><input type="number" name="issue_id" min="1" placeholder="Issue ID" required><button type="submit">Add issue</button></form>
+					@end
+					</article>
+				@end
+				@if can_admin
+					<form class="settings-form" method="post" action="/groups/@group.id/epics"><input name="title" placeholder="Epic title" required><textarea name="description"></textarea><input type="date" name="starts_at"><input type="date" name="due_at"><input type="number" name="parent_epic_id" min="0" value="0" aria-label="Parent epic"><button type="submit">Create epic</button></form>
+				@end
+			</section>
+			<section><h2>Iterations</h2>
+				@for iteration in iterations
+					<p><strong>@iteration.title</strong> @iteration.state</p>
+				@end
+				@if can_admin
+					<form class="settings-form" method="post" action="/groups/@group.id/iterations"><input name="title" placeholder="Iteration title" required><textarea name="description"></textarea><input type="date" name="starts_at" required><input type="date" name="due_at" required><button type="submit">Create iteration</button></form>
+				@end
+			</section>
+		</div>
+		@include 'layout/footer.html'
+	</body>
+</html>

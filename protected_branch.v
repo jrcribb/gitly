@@ -9,10 +9,52 @@ import git
 const protected_branch_pre_receive_hook = '#!/bin/sh
 rules="\${GITLY_PROTECTED_BRANCH_RULES:-}"
 grants="\${GITLY_PROTECTED_BRANCH_GRANTS:-}"
+tag_rules="\${GITLY_PROTECTED_TAG_RULES:-}"
 access="\${GITLY_USER_ACCESS_LEVEL:-0}"
+require_signed="\${GITLY_REQUIRE_SIGNED_COMMITS:-0}"
+allowed_signers="\${GITLY_SSH_ALLOWED_SIGNERS:-}"
 while read old_hash new_hash ref_name; do
 	case "\$ref_name" in
 		refs/heads/*) branch="\${ref_name#refs/heads/}" ;;
+		refs/tags/*)
+			tag="\${ref_name#refs/tags/}"
+			remaining="\$tag_rules"
+			while [ -n "\$remaining" ]; do
+				rule="\${remaining%%;*}"
+				if [ "\$remaining" = "\$rule" ]; then remaining=""; else remaining="\${remaining#*;}"; fi
+				rest="\${rule#*|}"
+				pattern="\${rest%%|*}"
+				create_access="\${rest#*|}"
+				case "\$tag" in
+					\$pattern)
+						case "\$old_hash" in
+							0000000000000000000000000000000000000000|0000000000000000000000000000000000000000000000000000000000000000)
+								if [ "\$create_access" -ge 100 ] || [ "\$access" -lt "\$create_access" ]; then
+									echo "Gitly: you are not allowed to create protected tag \$tag" >&2; exit 1
+								fi ;;
+							*) echo "Gitly: protected tag \$tag cannot be changed or deleted" >&2; exit 1 ;;
+						esac ;;
+				esac
+				done
+			if [ "\$require_signed" = "1" ]; then
+				case "\$new_hash" in
+					0000000000000000000000000000000000000000|0000000000000000000000000000000000000000000000000000000000000000) continue ;;
+				esac
+				if [ -z "\$allowed_signers" ] || [ ! -f "\$allowed_signers" ]; then
+					echo "Gitly: signed-commit policy is unavailable" >&2; exit 1
+				fi
+				case "\$old_hash" in
+					0000000000000000000000000000000000000000|0000000000000000000000000000000000000000000000000000000000000000)
+						commits="\$(git rev-list "\$new_hash" --not --all)" ;;
+					*) commits="\$(git rev-list "\$new_hash" "^\$old_hash")" ;;
+				esac
+				for commit in \$commits; do
+					if ! git -c "gpg.ssh.allowedSignersFile=\$allowed_signers" verify-commit "\$commit" >/dev/null 2>&1; then
+						echo "Gitly: commit \$commit does not have a trusted signature" >&2; exit 1
+					fi
+				done
+			fi
+			continue ;;
 		*) continue ;;
 	esac
 	if [ "\$access" -lt 30 ]; then
@@ -44,22 +86,42 @@ while read old_hash new_hash ref_name; do
 				;;
 		esac
 	done
-	[ "\$protected" -eq 1 ] || continue
-	if [ "\$required" -ge 100 ] || [ "\$access" -lt "\$required" ]; then
-		echo "Gitly: you are not allowed to push to protected branch \$branch" >&2
-		exit 1
+	if [ "\$protected" -eq 1 ]; then
+		if [ "\$required" -ge 100 ] || [ "\$access" -lt "\$required" ]; then
+			echo "Gitly: you are not allowed to push to protected branch \$branch" >&2
+			exit 1
+		fi
 	fi
 	case "\$new_hash" in
 		0000000000000000000000000000000000000000|0000000000000000000000000000000000000000000000000000000000000000)
-			echo "Gitly: protected branch \$branch cannot be deleted" >&2
-			exit 1 ;;
+			if [ "\$protected" -eq 1 ]; then
+				echo "Gitly: protected branch \$branch cannot be deleted" >&2
+				exit 1
+			fi
+			continue ;;
 	esac
-	# A new branch has no old commit. Deletions are denied by the HTTP layer.
-	git cat-file -e "\${old_hash}^{commit}" 2>/dev/null || continue
-	git cat-file -e "\${new_hash}^{commit}" 2>/dev/null || continue
-	if ! git merge-base --is-ancestor "\$old_hash" "\$new_hash"; then
+	if [ "\$protected" -eq 1 ] && git cat-file -e "\${old_hash}^{commit}" 2>/dev/null
+	then
+		git cat-file -e "\${new_hash}^{commit}" 2>/dev/null || exit 1
+		if ! git merge-base --is-ancestor "\$old_hash" "\$new_hash"; then
 		echo "Gitly: force-pushing to protected branch \$branch is not allowed" >&2
 		exit 1
+		fi
+	fi
+	if [ "\$require_signed" = "1" ]; then
+		if [ -z "\$allowed_signers" ] || [ ! -f "\$allowed_signers" ]; then
+			echo "Gitly: signed-commit policy is unavailable" >&2; exit 1
+		fi
+		case "\$old_hash" in
+			0000000000000000000000000000000000000000|0000000000000000000000000000000000000000000000000000000000000000)
+				commits="\$(git rev-list "\$new_hash" --not --all)" ;;
+			*) commits="\$(git rev-list "\$new_hash" "^\$old_hash")" ;;
+		esac
+		for commit in \$commits; do
+			if ! git -c "gpg.ssh.allowedSignersFile=\$allowed_signers" verify-commit "\$commit" >/dev/null 2>&1; then
+				echo "Gitly: commit \$commit does not have a trusted signature" >&2; exit 1
+			fi
+		done
 	fi
 done
 exit 0
@@ -74,8 +136,8 @@ exit 0
 '
 
 struct ProtectedBranch {
-	id           int    @[primary; sql: serial]
-	repo_id      int    @[unique: 'protected_branch']
+	id           int @[primary; sql: serial]
+	repo_id      int @[unique: 'protected_branch']
 	pattern      string @[unique: 'protected_branch']
 	push_access  int
 	merge_access int
@@ -175,12 +237,14 @@ fn (app &App) ensure_protected_branch_hook(repo Repo) ! {
 		os.write_file(post_hook_path, gitly_post_receive_hook)!
 	}
 	os.chmod(post_hook_path, 0o700)!
+	app.write_ssh_allowed_signers(repo)!
 	// Keep this relative to the bare repository so repository transfers do not
 	// leave Git pointing at a hook directory under the old namespace.
 	config_result := git.Git.exec_in_dir(repo.git_dir, ['config', 'core.hooksPath', '.gitly-hooks'])
 	if config_result.exit_code != 0 {
 		return error('could not configure protected branch hook')
 	}
+	app.ensure_partial_clone_config(repo)!
 }
 
 fn (app &App) matching_protected_branches(repo_id int, branch string) []ProtectedBranch {
@@ -204,10 +268,27 @@ fn (app &App) required_branch_access(repo_id int, branch string, operation strin
 
 fn (app &App) user_can_push_branch(user_id int, repo Repo, branch string) bool {
 	level := app.repo_access_level(user_id, repo)
+	return app.access_level_can_push_branch(level, repo.id, branch)
+}
+
+fn (app &App) access_level_can_push_branch(level int, repo_id int, branch string) bool {
 	if level < project_access_developer {
 		return false
 	}
-	required := app.required_branch_access(repo.id, branch, 'push')
+	required := app.required_branch_access(repo_id, branch, 'push')
+	return required < project_access_no_one && level >= required
+}
+
+fn (app &App) access_level_can_create_tag(level int, repo_id int, tag_name string) bool {
+	if level < project_access_developer {
+		return false
+	}
+	mut required := project_access_developer
+	for rule in app.matching_protected_tags(repo_id, tag_name) {
+		if rule.create_access > required {
+			required = rule.create_access
+		}
+	}
 	return required < project_access_no_one && level >= required
 }
 

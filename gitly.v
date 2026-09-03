@@ -178,11 +178,11 @@ pub fn (mut app App) before_request(mut ctx Context) bool {
 		ctx.text('Forbidden: cross-site state-changing request')
 		return false
 	}
-	$if trace_prealloc? {
+	$if trace_prealloc ? {
 		unsafe { prealloc_scope_checkpoint(c'gitly before_request start') }
 	}
 	ctx.logged_in = app.is_logged_in(mut ctx)
-	$if trace_prealloc? {
+	$if trace_prealloc ? {
 		unsafe { prealloc_scope_checkpoint(c'gitly checked login') }
 	}
 	if ctx.logged_in {
@@ -191,7 +191,7 @@ pub fn (mut app App) before_request(mut ctx Context) bool {
 			User{}
 		}
 	}
-	$if trace_prealloc? {
+	$if trace_prealloc ? {
 		unsafe { prealloc_scope_checkpoint(c'gitly loaded user') }
 	}
 	lang_cookie := ctx.get_cookie('lang') or { '' }
@@ -204,7 +204,7 @@ pub fn (mut app App) before_request(mut ctx Context) bool {
 		else { Lang.en }
 	}
 
-	$if trace_prealloc? {
+	$if trace_prealloc ? {
 		unsafe { prealloc_scope_checkpoint(c'gitly loaded lang') }
 	}
 	return true
@@ -540,6 +540,45 @@ fn (mut app App) create_tables() ! {
 	sql app.db {
 		create table PrApproval
 	}!
+	sql app.db {
+		create table DeployToken
+	}!
+	sql app.db {
+		create table ProtectedTag
+	}!
+	sql app.db {
+		create table Snippet
+	}!
+	sql app.db {
+		create table LfsObject
+	}!
+	sql app.db {
+		create table RepoLfsObject
+	}!
+	sql app.db {
+		create table RepoHousekeeping
+	}!
+	sql app.db {
+		create table Epic
+	}!
+	sql app.db {
+		create table EpicIssue
+	}!
+	sql app.db {
+		create table Iteration
+	}!
+	sql app.db {
+		create table IssueTask
+	}!
+	sql app.db {
+		create table IssueTimeEntry
+	}!
+	sql app.db {
+		create table IssueRelationship
+	}!
+	sql app.db {
+		create table ServiceDeskTicket
+	}!
 }
 
 fn (mut app App) migrate_tables() ! {
@@ -559,7 +598,24 @@ fn (mut app App) migrate_tables() ! {
 	app.add_missing_column('Repo', 'is_pinned', db_bool_column_type())!
 	app.add_missing_column('Repo', 'created_at', 'INTEGER NOT NULL DEFAULT 0')!
 	app.add_missing_column('Repo', 'required_approvals', 'INTEGER NOT NULL DEFAULT 0')!
+	app.add_missing_column('Repo', 'require_signed_commits', db_bool_column_type())!
+	app.add_missing_column('Repo', 'service_desk_enabled', db_bool_column_type())!
+	app.add_missing_column('Repo', 'service_desk_token_hash', "TEXT NOT NULL DEFAULT ''")!
 	app.add_missing_column('Issue', 'status', 'INTEGER NOT NULL DEFAULT 0')!
+	app.add_missing_column('Release', 'created_by', 'INTEGER NOT NULL DEFAULT 0')!
+	app.add_missing_column('Release', 'is_manual', db_bool_column_type())!
+	app.add_missing_column('Release', 'is_deleted', db_bool_column_type())!
+	app.add_missing_column('Issue', 'milestone_id', 'INTEGER NOT NULL DEFAULT 0')!
+	app.add_missing_column('Issue', 'iteration_id', 'INTEGER NOT NULL DEFAULT 0')!
+	app.add_missing_column('Issue', 'time_estimate_minutes', 'INTEGER NOT NULL DEFAULT 0')!
+	app.add_missing_column('Label', 'scope', "TEXT NOT NULL DEFAULT ''")!
+	app.add_missing_column('Project', 'label_id', 'INTEGER NOT NULL DEFAULT 0')!
+	app.add_missing_column('Project', 'milestone_id', 'INTEGER NOT NULL DEFAULT 0')!
+	app.add_missing_column('Project', 'iteration_id', 'INTEGER NOT NULL DEFAULT 0')!
+	app.add_missing_column('Project', 'assignee_id', 'INTEGER NOT NULL DEFAULT 0')!
+	app.add_missing_column('ProjectColumn', 'wip_limit', 'INTEGER NOT NULL DEFAULT 0')!
+	app.add_missing_column('Org', 'parent_id', 'INTEGER NOT NULL DEFAULT 0')!
+	app.add_missing_column('Org', 'display_name', "TEXT NOT NULL DEFAULT ''")!
 	app.add_missing_column('SshKey', 'fingerprint', "TEXT NOT NULL DEFAULT ''")!
 	app.add_missing_column('SshKey', 'usage_type', "TEXT NOT NULL DEFAULT 'auth'")!
 	app.add_missing_column('SshKey', 'expires_at', 'INTEGER NOT NULL DEFAULT 0')!
@@ -612,6 +668,23 @@ fn (mut app App) migrate_tables() ! {
 	app.db.exec('create index if not exists idx_pr_approval_head on ${sql_table('PrApproval')} (pr_id, approved_head_oid)')!
 	app.db.exec('create unique index if not exists idx_user_github_id on ${sql_table('User')} (${sql_table('github_id')}) where ${sql_table('github_id')} > 0')!
 	app.db.exec('create unique index if not exists idx_user_single_bootstrap_admin on ${sql_table('User')} (${sql_table('is_bootstrap_admin')}) where ${sql_table('is_bootstrap_admin')} is true')!
+	app.db.exec('create unique index if not exists idx_deploy_token_hash on ${sql_table('DeployToken')} (token_hash)')!
+	app.db.exec('create unique index if not exists idx_deploy_token_username on ${sql_table('DeployToken')} (username)')!
+	app.db.exec('create unique index if not exists idx_protected_tag_unique on ${sql_table('ProtectedTag')} (repo_id, pattern)')!
+	app.db.exec('create unique index if not exists idx_snippet_repo_id on ${sql_table('Snippet')} (repo_id, id)')!
+	app.db.exec('create unique index if not exists idx_lfs_oid on ${sql_table('LfsObject')} (oid)')!
+	app.db.exec('create unique index if not exists idx_repo_lfs_object on ${sql_table('RepoLfsObject')} (repo_id, lfs_object_id)')!
+	app.db.exec('create unique index if not exists idx_repo_housekeeping on ${sql_table('RepoHousekeeping')} (repo_id)')!
+	app.db.exec('create index if not exists idx_org_parent on ${sql_table('Org')} (parent_id)')!
+	app.db.exec('create unique index if not exists idx_epic_issue on ${sql_table('EpicIssue')} (epic_id, issue_id)')!
+	app.db.exec('create index if not exists idx_iteration_org_dates on ${sql_table('Iteration')} (org_id, starts_at, due_at)')!
+	app.db.exec('create index if not exists idx_issue_task_issue on ${sql_table('IssueTask')} (issue_id, position)')!
+	app.db.exec('create index if not exists idx_issue_time_issue on ${sql_table('IssueTimeEntry')} (issue_id, created_at)')!
+	app.db.exec('create unique index if not exists idx_issue_relationship on ${sql_table('IssueRelationship')} (source_issue_id, target_issue_id, relationship_type)')!
+	app.db.exec('create unique index if not exists idx_service_desk_issue on ${sql_table('ServiceDeskTicket')} (issue_id)')!
+	app.db.exec("create unique index if not exists idx_service_desk_external on ${sql_table('ServiceDeskTicket')} (repo_id, external_id) where external_id != ''")!
+	app.backfill_scoped_labels()!
+	app.backfill_org_display_names()!
 	app.backfill_bootstrap_administrator()!
 }
 

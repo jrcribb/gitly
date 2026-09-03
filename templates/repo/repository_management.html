@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html>
+	<head>@include '../layout/head.html'</head>
+	<body>
+		@include '../layout/header.html'
+		<div class="content">
+			@include '../layout/repo_menu.html'
+			<h1>Repository management</h1>
+			@if ctx.form_error != ''
+				<div class="form-error">@ctx.form_error</div>
+			@end
+			@if created_secret != ''
+				<div class="form-success">
+					<strong>Copy this deploy token now. It will not be shown again.</strong>
+					<p>Username: <code>@created_username</code></p>
+					<p>Token: <code>@created_secret</code></p>
+				</div>
+			@end
+
+			<section class="settings-section">
+				<h2>Deploy tokens</h2>
+				<p>Repository-scoped HTTPS credentials are stored as one-way hashes and may be limited by scope and expiry.</p>
+				<form class="settings-form" method="post" action="/@repo.user_name/@repo.name/settings/deploy-tokens">
+					<label>Name <input name="name" required maxlength="100"></label>
+					<label><input type="checkbox" name="read_repository" checked> Read repository</label>
+					<label><input type="checkbox" name="write_repository"> Write repository</label>
+					<label><input type="checkbox" name="read_lfs"> Read LFS</label>
+					<label><input type="checkbox" name="write_lfs"> Write LFS</label>
+					<label>Expires <input type="date" name="expires_at"></label>
+					<button type="submit">Create deploy token</button>
+				</form>
+				@for token in deploy_tokens
+					<div class="ssh-key">
+						<strong>@token.name</strong> <code>@token.username</code>
+						<p>Scopes: @token.scopes · Last used: @{ssh_timestamp_description(token.last_used_at)}</p>
+						@if token.revoked
+							<span>Revoked</span>
+						@else
+							<form method="post" action="/@repo.user_name/@repo.name/settings/deploy-tokens/@token.id/revoke"><button type="submit">Revoke</button></form>
+						@end
+					</div>
+				@end
+			</section>
+
+			<section class="settings-section">
+				<h2>Commit signatures</h2>
+				<form class="settings-form" method="post" action="/@repo.user_name/@repo.name/settings/signed-commits">
+					<label><input type="checkbox" name="required"
+					@if repo.require_signed_commits
+						checked
+					@end
+					> Require every newly pushed commit to be signed by an active Gitly SSH signing key</label>
+					<button type="submit">Save policy</button>
+				</form>
+			</section>
+
+			<section class="settings-section">
+				<h2>Protected tags and releases</h2>
+				<p>Protected tags may only be created by the selected role and can never be moved or deleted. Releases inherit the tag policy.</p>
+				<form class="settings-form" method="post" action="/@repo.user_name/@repo.name/settings/protected-tags">
+					<input name="pattern" placeholder="v*" required>
+					<select name="create_access">
+						<option value="30">Developer</option>
+						<option value="40" selected>Maintainer</option>
+						<option value="100">No one</option>
+					</select>
+					<button type="submit">Protect tag</button>
+				</form>
+				@for rule in protected_tags
+					<div><code>@rule.pattern</code> (minimum access @rule.create_access)
+						<form class="inline-form" method="post" action="/@repo.user_name/@repo.name/settings/protected-tags/@rule.id/delete"><button type="submit">Remove</button></form>
+					</div>
+				@end
+			</section>
+
+			<section class="settings-section">
+				<h2>Repository housekeeping</h2>
+				<p>Runs Git maintenance, writes a commit graph, verifies connectivity, and enables protocol-v2 object filtering for partial clones.</p>
+				@if housekeeping.last_completed_at > 0
+					<p>Last completed: @{housekeeping.completed_description()}</p>
+				@end
+				@if housekeeping.last_error != ''
+					<p class="form-error">@housekeeping.last_error</p>
+				@end
+				<form method="post" action="/@repo.user_name/@repo.name/settings/housekeeping"><button type="submit">Run housekeeping</button></form>
+			</section>
+		</div>
+		@include '../layout/footer.html'
+	</body>
+</html>

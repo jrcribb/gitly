@@ -24,6 +24,17 @@ pub fn (update GitRefUpdate) branch_name() ?string {
 	return name
 }
 
+pub fn (update GitRefUpdate) tag_name() ?string {
+	if !update.ref_name.starts_with('refs/tags/') {
+		return none
+	}
+	name := update.ref_name['refs/tags/'.len..]
+	if name == '' {
+		return none
+	}
+	return name
+}
+
 pub fn (update GitRefUpdate) is_delete() bool {
 	if !valid_object_id(update.new_hash) {
 		return false
@@ -171,12 +182,12 @@ pub fn check_git_repo_url(url string) bool {
 	headers.add_custom('User-Agent', 'git/2.30.0') or {}
 	headers.add_custom('Git-Protocol', 'version=2') or {}
 	config := http.FetchConfig{
-		url:                  refs_url
-		header:               headers
-		read_timeout:         10 * time.second
-		write_timeout:        10 * time.second
-		allow_redirect:       false
-		max_retries:          1
+		url: refs_url
+		header: headers
+		read_timeout: 10 * time.second
+		write_timeout: 10 * time.second
+		allow_redirect: false
+		max_retries: 1
 		stop_receiving_limit: 1024 * 1024
 	}
 	response := http.fetch(config) or { return false }

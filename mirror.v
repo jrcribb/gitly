@@ -175,8 +175,7 @@ fn decrypt_mirror_secret(storage_secret string, value string) !string {
 	}
 	key := sha256.sum(storage_secret.bytes())
 	gcm := aes.new_aes_gcm(key[..])!
-	plain := gcm.decrypt(payload[aes.gcm_nonce_size..], payload[..aes.gcm_nonce_size],
-		mirror_secret_aad.bytes())!
+	plain := gcm.decrypt(payload[aes.gcm_nonce_size..], payload[..aes.gcm_nonce_size], mirror_secret_aad.bytes())!
 	return plain.bytestr()
 }
 
@@ -219,8 +218,7 @@ fn (mut app App) add_repo_mirror(repo_id int, created_by int, raw_url string, fo
 	if repo_id <= 0 || created_by <= 0 || !valid_mirror_direction(direction) {
 		return error('Invalid repository mirror')
 	}
-	mut clean_url, embedded_username, embedded_password, scheme := normalize_mirror_endpoint(raw_url,
-		app.config.mirror_allowed_hosts)!
+	mut clean_url, embedded_username, embedded_password, scheme := normalize_mirror_endpoint(raw_url, app.config.mirror_allowed_hosts)!
 	username := if form_username != '' { form_username } else { embedded_username }
 	password := if form_password != '' { form_password } else { embedded_password }
 	if username.len > 1024 || password.len > 4096 {
@@ -335,14 +333,12 @@ fn prepare_mirror_auth(app &App, mirror RepoMirror) !(map[string]string, []strin
 		if mirror.ssh_known_hosts.trim_space() == '' {
 			return error('SSH mirror host key is not configured')
 		}
-		known_hosts_path := os.join_path(os.temp_dir(),
-			'gitly-known-hosts-${os.getpid()}-${rand.ulid()}')
+		known_hosts_path := os.join_path(os.temp_dir(), 'gitly-known-hosts-${os.getpid()}-${rand.ulid()}')
 		cleanup << known_hosts_path
 		write_private_mirror_file(known_hosts_path, mirror.ssh_known_hosts + '\n', 0o600)!
 		mut ssh_key_path := ''
 		if ssh_key != '' {
-			ssh_key_path = os.join_path(os.temp_dir(),
-				'gitly-mirror-key-${os.getpid()}-${rand.ulid()}')
+			ssh_key_path = os.join_path(os.temp_dir(), 'gitly-mirror-key-${os.getpid()}-${rand.ulid()}')
 			cleanup << ssh_key_path
 			write_private_mirror_file(ssh_key_path, ssh_key, 0o600)!
 		}
@@ -354,8 +350,7 @@ if [ -n "$GITLY_MIRROR_SSH_KEY" ]; then
   set -- -i "$GITLY_MIRROR_SSH_KEY" -o IdentitiesOnly=yes "$@"
 fi
 exec ssh "$@"
-',
-			0o700)!
+', 0o700)!
 		keep_files = true
 		return {
 			'GIT_SSH':                  wrapper_path
@@ -377,8 +372,7 @@ case "$1" in
   *Username*) printf "%s\n" "$GITLY_MIRROR_USERNAME" ;;
   *) printf "%s\n" "$GITLY_MIRROR_PASSWORD" ;;
 esac
-',
-		0o700)!
+', 0o700)!
 	keep_files = true
 	return {
 		'GIT_ASKPASS':           path
@@ -486,6 +480,7 @@ fn (mut app App) pull_repo_mirror(repo Repo, mirror RepoMirror, env map[string]s
 				}
 			}
 		}
+		app.verify_commit_range_for_policy(repo, expected_old_sha, remote_sha)!
 		updates << MirrorRefUpdate{
 			ref_name: local_ref
 			new_oid: remote_sha
@@ -499,6 +494,9 @@ fn (mut app App) pull_repo_mirror(repo Repo, mirror RepoMirror, env map[string]s
 			return error('Could not inspect fetched mirror tags')
 		}
 		for tag in tags.output.split_into_lines().map(it.trim_space()).filter(it != '') {
+			if app.tag_is_protected(repo.id, tag) {
+				continue
+			}
 			local_ref := 'refs/tags/${tag}'
 			remote_ref := 'refs/gitly-mirrors/${mirror.id}/tags/${tag}'
 			remote_sha := git_rev_parse(repo.git_dir, remote_ref) or {
@@ -518,6 +516,7 @@ fn (mut app App) pull_repo_mirror(repo Repo, mirror RepoMirror, env map[string]s
 					return error('Mirror tag ${tag} diverged; enable overwrite to replace it')
 				}
 			}
+			app.verify_commit_range_for_policy(repo, expected_old_sha, remote_sha)!
 			updates << MirrorRefUpdate{
 				ref_name: local_ref
 				new_oid: remote_sha
@@ -643,7 +642,7 @@ fn (mut app App) sync_repo_mirror(mirror RepoMirror, allow_local bool) ! {
 
 fn run_push_mirrors(repo_id int, conf config.Config) {
 	mut app := App{
-		db:     connect_db(conf) or { return }
+		db: connect_db(conf) or { return }
 		config: conf
 	}
 	defer {
@@ -659,7 +658,7 @@ fn run_push_mirrors(repo_id int, conf config.Config) {
 fn run_mirror_scheduler(conf config.Config) {
 	for {
 		mut app := App{
-			db:     connect_db(conf) or {
+			db: connect_db(conf) or {
 				time.sleep(time.minute)
 				continue
 			}

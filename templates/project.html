@@ -27,6 +27,9 @@
 					<div class="kanban-column">
 						<div class="kanban-column__header">
 							<h3>@cv.column.name</h3>
+							@if cv.column.wip_limit > 0
+								<span>@cv.cards.len / @cv.column.wip_limit WIP</span>
+							@end
 							@if can_edit
 								<form method="post" action="/@repo.user_name/@repo.name/projects/@project.id/columns/@cv.column.id/delete" class="inline-form">
 									<button type="submit" class="link-button link-button--danger" title="%project_column_delete">&times;</button>
@@ -40,6 +43,9 @@
 							@for card in cv.cards
 								<li class="kanban-card">
 									<div class="kanban-card__title">@card.title</div>
+									@if card.issue_id > 0
+										<a href="/@repo.user_name/@repo.name/issue/@card.issue_id">Issue #@card.issue_id</a>
+									@end
 									@if card.note != ''
 										<p class="kanban-card__note">@card.note</p>
 									@end
@@ -67,7 +73,13 @@
 						</ul>
 						@if can_edit
 							<form method="post" action="/@repo.user_name/@repo.name/projects/@project.id/columns/@cv.column.id/cards" class="kanban-card-form">
-								<input type="text" name="title" placeholder="%project_card_title_placeholder" required>
+								<input type="text" name="title" placeholder="%project_card_title_placeholder">
+								<select name="issue_id">
+									<option value="0">Free-form card</option>
+									@for candidate in candidate_issues
+										<option value="@candidate.id">#@candidate.id @candidate.title</option>
+									@end
+								</select>
 								<textarea name="note" placeholder="%project_card_note_placeholder" rows="2"></textarea>
 								<button type="submit" class="link-button">%project_card_save</button>
 							</form>
@@ -79,6 +91,7 @@
 					<div class="kanban-column kanban-column--add">
 						<form method="post" action="/@repo.user_name/@repo.name/projects/@project.id/columns" class="kanban-card-form">
 							<input type="text" name="name" placeholder="%project_column_name_placeholder" required>
+							<input type="number" name="wip_limit" min="0" value="0" title="Work-in-progress limit (0 means unlimited)">
 							<button type="submit" class="link-button">%project_add_column</button>
 						</form>
 					</div>

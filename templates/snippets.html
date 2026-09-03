@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+	<head>@include 'layout/head.html'</head>
+	<body>
+		@include 'layout/header.html'
+		<div class="content">
+			@include 'layout/repo_menu.html'
+			<h1>Snippets</h1>
+			@if ctx.form_error != ''
+				<div class="form-error">@ctx.form_error</div>
+			@end
+			@for snippet in snippets
+				<article class="issue-row"><h2><a href="/@repo.user_name/@repo.name/snippets/@snippet.id">@snippet.title</a></h2><code>@snippet.file_name</code><p>@snippet.description</p></article>
+			@end
+			@if can_create
+				<h2>New snippet</h2>
+				<form class="settings-form" method="post" action="/@repo.user_name/@repo.name/snippets">
+					<input name="title" placeholder="Title" maxlength="300" required>
+					<input name="file_name" placeholder="example.txt" required>
+					<textarea name="description" placeholder="Description"></textarea>
+					<textarea name="content" rows="14" placeholder="Content" required></textarea>
+					<label>Visibility <select name="visibility"><option value="private">Project members</option><option value="public">Public</option></select></label>
+					<button type="submit">Create snippet</button>
+				</form>
+			@end
+		</div>
+		@include 'layout/footer.html'
+	</body>
+</html>

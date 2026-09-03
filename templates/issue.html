@@ -62,6 +62,80 @@
 				@end
 			</section>
 
+			<section class="issue-assignees" aria-labelledby="issue-tasks-heading">
+				<h2 id="issue-tasks-heading">Tasks</h2>
+				@for task in planning.tasks
+					<div>
+						@if task.completed
+							<span>☑ @task.title</span>
+						@else
+							<span>☐ @task.title</span>
+						@end
+						@if can_manage
+							<form class="inline-form" method="post" action="/@repo.user_name/@repo.name/issue/@issue.id/tasks/@task.id/toggle"><button type="submit">Toggle</button></form>
+							<form class="inline-form" method="post" action="/@repo.user_name/@repo.name/issue/@issue.id/tasks/@task.id/delete"><button type="submit">Delete</button></form>
+						@end
+					</div>
+				@end
+				@if can_manage
+					<form method="post" action="/@repo.user_name/@repo.name/issue/@issue.id/tasks"><input name="title" placeholder="Add a task" required><button type="submit">Add task</button></form>
+				@end
+			</section>
+
+			<section class="issue-assignees" aria-labelledby="issue-time-heading">
+				<h2 id="issue-time-heading">Time tracking</h2>
+				<p>Estimate: @issue.time_estimate_minutes minutes · Spent: @planning.time_spent minutes</p>
+				@for entry in planning.time_entries
+					<p>@entry.minutes minutes — @entry.note</p>
+				@end
+				@if can_manage
+					<form method="post" action="/@repo.user_name/@repo.name/issue/@issue.id/time">
+						<input type="number" min="0" name="estimate_minutes" value="@issue.time_estimate_minutes" aria-label="Estimate in minutes">
+						<input type="number" min="0" name="minutes" placeholder="Minutes spent">
+						<input name="note" placeholder="Work note">
+						<button type="submit">Update time</button>
+					</form>
+				@end
+			</section>
+
+			<section class="issue-assignees" aria-labelledby="issue-relations-heading">
+				<h2 id="issue-relations-heading">Related issues</h2>
+				@for relation in planning.relationships
+					<p>@relation.relationship_type: #@relation.source_issue_id → #@relation.target_issue_id
+					@if can_manage
+						<form class="inline-form" method="post" action="/@repo.user_name/@repo.name/issue/@issue.id/relationships/@relation.id/delete"><button type="submit">Remove</button></form>
+					@end
+					</p>
+				@end
+				@if can_manage
+					<form method="post" action="/@repo.user_name/@repo.name/issue/@issue.id/relationships">
+						<select name="relationship_type"><option value="relates_to">Relates to</option><option value="blocks">Blocks</option></select>
+						<input type="number" min="1" name="target_issue_id" placeholder="Issue number" required>
+						<button type="submit">Link issue</button>
+					</form>
+				@end
+			</section>
+
+			@if iterations.len > 0
+				<section class="issue-assignees">
+					<h2>Iteration</h2>
+					@if planning.iteration.id > 0
+						<p>@planning.iteration.title</p>
+					@end
+					@if can_manage
+						<form method="post" action="/@repo.user_name/@repo.name/issue/@issue.id/iteration">
+							<select name="iteration_id">
+								<option value="0">None</option>
+								@for iteration in iterations
+									<option value="@iteration.id">@iteration.title</option>
+								@end
+							</select>
+							<button type="submit">Assign iteration</button>
+						</form>
+					@end
+				</section>
+			@end
+
 			<div class="issue-post">
 				<a href="/@issue_author.username" class="issue-post__avatar">
 					<img src="@{app.prepare_user_avatar_url(issue_author.avatar)}">

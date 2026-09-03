@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+	<head>@include 'layout/head.html'</head>
+	<body>
+		@include 'layout/header.html'
+		<div class="content">
+			@include 'layout/repo_menu.html'
+			<h1>@snippet.title</h1>
+			<p>@snippet.description</p>
+			<h2><code>@snippet.file_name</code></h2>
+			<pre><code>@snippet.content</code></pre>
+			@if can_edit
+				<h2>Edit snippet</h2>
+				<form class="settings-form" method="post" action="/@repo.user_name/@repo.name/snippets/@snippet.id">
+					<input name="title" value="@snippet.title" required>
+					<input name="file_name" value="@snippet.file_name" required>
+					<textarea name="description">@snippet.description</textarea>
+					<textarea name="content" rows="14">@snippet.content</textarea>
+					<label>Public <input type="checkbox" name="visibility" value="public"
+					@if snippet.is_public
+						checked
+					@end
+					></label>
+					<button type="submit">Save</button>
+				</form>
+				<form method="post" action="/@repo.user_name/@repo.name/snippets/@snippet.id/delete"><button type="submit">Delete</button></form>
+			@end
+		</div>
+		@include 'layout/footer.html'
+	</body>
+</html>

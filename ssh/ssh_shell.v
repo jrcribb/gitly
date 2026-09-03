@@ -8,7 +8,7 @@ import time
 fn cli_app(config_path string) !&App {
 	conf := config.read_config(config_path)!
 	return &App{
-		db:     connect_db(conf)!
+		db: connect_db(conf)!
 		config: conf
 	}
 }
@@ -16,13 +16,16 @@ fn cli_app(config_path string) !&App {
 fn ssh_environment(app &App, repo Repo, access_level int, protected_branch_grants string,
 	config_path string) map[string]string {
 	return {
-		'GITLY_PROTECTED_BRANCH_RULES': app.protected_branch_rules_env(repo.id)
+		'GITLY_PROTECTED_BRANCH_RULES':  app.protected_branch_rules_env(repo.id)
 		'GITLY_PROTECTED_BRANCH_GRANTS': protected_branch_grants
-		'GITLY_USER_ACCESS_LEVEL':      access_level.str()
-		'GITLY_RUN_POST_RECEIVE':       '1'
-		'GITLY_EXECUTABLE':             os.executable()
-		'GITLY_REPO_ID':                repo.id.str()
-		'GITLY_CONFIG_PATH':            os.real_path(config_path)
+		'GITLY_PROTECTED_TAG_RULES':     app.protected_tag_rules_env(repo.id)
+		'GITLY_USER_ACCESS_LEVEL':       access_level.str()
+		'GITLY_REQUIRE_SIGNED_COMMITS':  if repo.require_signed_commits { '1' } else { '0' }
+		'GITLY_SSH_ALLOWED_SIGNERS':     os.join_path(repo.git_dir, '.gitly-hooks', 'allowed_signers')
+		'GITLY_RUN_POST_RECEIVE':        '1'
+		'GITLY_EXECUTABLE':              os.executable()
+		'GITLY_REPO_ID':                 repo.id.str()
+		'GITLY_CONFIG_PATH':             os.real_path(config_path)
 	}
 }
 
@@ -102,10 +105,14 @@ fn run_ssh_shell(kind string, key_id int, config_path string) int {
 			eprintln('Gitly: protected branch enforcement is unavailable')
 			return 1
 		}
+	} else {
+		app.ensure_partial_clone_config(repo) or {
+			eprintln('Gitly: partial clone configuration is unavailable')
+			return 1
+		}
 	}
 	app.mark_ssh_key_used(kind, key_id, ssh_client_ip(os.getenv('SSH_CONNECTION')))
-	return run_git_service(repo, target, ssh_environment(app, repo, access_level,
-		protected_branch_grants, config_path))
+	return run_git_service(repo, target, ssh_environment(app, repo, access_level, protected_branch_grants, config_path))
 }
 
 fn run_ssh_post_receive(repo_id int, config_path string) int {

@@ -14,9 +14,11 @@ It provides:
 - Webhooks, scoped/expiring personal access tokens, two-factor authentication, security logs, and optional CI integration
 - Repository forks with upstream synchronization and cross-fork merge requests
 - Scheduled/manual pull and push mirrors over HTTPS or SSH, with encrypted credentials
+- Deploy tokens, trusted SSH commit signatures, signed-commit policies, protected tags and releases, snippets, Git LFS, partial clone, and scheduled/manual repository housekeeping
+- Nested groups with inherited planning access, epics and roadmaps, iterations, issue tasks/time/relationships, scoped labels, service desk ingestion, and filtered boards with WIP limits
 - SQLite or PostgreSQL storage and compiled-in templates
 
-Gitly is beta software. It is a lightweight forge rather than a complete GitLab distribution; advanced CI/CD, registries, enterprise identity, security scanning, LFS, and a repository wiki remain outside the implemented foundation.
+Gitly is beta software. It is a lightweight forge rather than a complete GitLab distribution; package registries, enterprise identity, security scanning, large-scale operations, and a repository wiki remain outside the implemented foundation.
 
 The current GitLab capability comparison and the remaining implementation sequence are documented in [docs/gitlab-parity.md](docs/gitlab-parity.md). Gitly is intentionally described as a lightweight alternative, not as complete GitLab parity while major platform areas remain outstanding.
 
