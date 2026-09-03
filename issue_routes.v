@@ -1,7 +1,6 @@
 module main
 
 import veb
-import validation
 import api
 import time
 
@@ -11,7 +10,23 @@ struct ItemWithUser[T] {
 }
 
 type IssueWithUser = ItemWithUser[Issue]
+
 type CommentWithUser = ItemWithUser[Comment]
+
+// GitLab-style issue management is intentionally broader than repository
+// write access: Reporters, the author, and a current assignee can maintain an
+// issue without receiving permission to push code. Callers must separately
+// verify that the user can still read the target repository.
+fn (app &App) issue_user_can_manage(user_id int, repo Repo, issue Issue) bool {
+	if user_id <= 0 {
+		return false
+	}
+	return issue.author_id == user_id || user_id in issue.assigned || app.repo_access_level(user_id, repo) >= project_access_reporter
+}
+
+fn (app &App) can_manage_issue(ctx Context, repo Repo, issue Issue) bool {
+	return ctx.logged_in && app.can_read_repo(ctx, repo) && app.issue_user_can_manage(ctx.user.id, repo, issue)
+}
 
 @['/api/v1/:username/:repo_name/issues/count']
 fn (mut app App) handle_issues_count(username string, repo_name string) veb.Result {
@@ -25,7 +40,7 @@ fn (mut app App) handle_issues_count(username string, repo_name string) veb.Resu
 	count := app.get_repo_issue_count(repo.id)
 	return ctx.json(api.ApiIssueCount{
 		success: true
-		result:  count
+		result: count
 	})
 }
 
@@ -59,20 +74,20 @@ pub fn (mut app App) handle_add_repo_issue(mut ctx Context, username string, rep
 	}
 	title := ctx.form['title']
 	text := ctx.form['text']
-	if !valid_title(title) || validation.is_string_empty(text) || !valid_body(text) {
-		ctx.error('Issue title or description is missing or too long')
+	if !valid_title(title) || !valid_body(text) {
+		ctx.error('Issue title is missing or the description is too long')
 		return ctx.redirect('/${username}/${repo_name}/issues/new')
 	}
-	app.increment_user_post(mut ctx.user) or { app.info(err.str()) }
 	app.add_issue(repo.id, ctx.user.id, title, text) or {
 		app.info(err.str())
 		return ctx.redirect('/${username}/${repo_name}/issues/new')
 	}
+	app.increment_user_post(mut ctx.user) or { app.info(err.str()) }
 	app.sync_repo_open_issue_count(repo.id) or { app.info(err.str()) }
 	app.dispatch_webhook(repo.id, 'issue', WebhookIssuePayload{
 		action: 'opened'
-		repo:   '${username}/${repo_name}'
-		title:  title
+		repo: '${username}/${repo_name}'
+		title: title
 		author: ctx.user.username
 	})
 	has_first_issue_activity := app.has_activity(ctx.user.id, 'first_issue')
@@ -169,16 +184,24 @@ pub fn (mut app App) issue(mut ctx Context, username string, repo_name string, i
 		return ctx.not_found()
 	}
 	issue_author := app.get_user_by_id(issue.author_id) or { placeholder_user(issue.author_id) }
-	can_manage := ctx.logged_in
-		&& (issue.author_id == ctx.user.id || app.user_can_write_repo(ctx.user.id, repo))
-	can_manage_assignees := ctx.logged_in && app.user_can_write_repo(ctx.user.id, repo)
 	assignees := app.find_issue_assignees(issue)
 	issue.assigned = assignees.map(it.id)
+	issue.labels = app.get_issue_labels(issue.id)
+	can_manage := app.can_manage_issue(ctx, repo, issue)
+	can_manage_assignees := can_manage
 	mut assignable_users := []User{}
 	if can_manage_assignees {
 		for candidate in app.find_issue_assignable_users(repo) {
 			if candidate.id !in issue.assigned {
 				assignable_users << candidate
+			}
+		}
+	}
+	mut available_labels := []Label{}
+	if can_manage {
+		for label in app.list_repo_labels(repo.id) {
+			if !issue.labels.any(it.id == label.id) {
+				available_labels << label
 			}
 		}
 	}
@@ -201,17 +224,91 @@ pub fn (mut app App) issue(mut ctx Context, username string, repo_name string, i
 	return $veb.html()
 }
 
+@['/:username/:repo_name/issue/:id/edit']
+pub fn (mut app App) edit_issue(mut ctx Context, username string, repo_name string, id string) veb.Result {
+	if !ctx.logged_in {
+		return ctx.redirect_to_login()
+	}
+	repo := app.find_repo_by_name_and_username(repo_name, username) or { return ctx.not_found() }
+	issue := app.find_issue_by_id(id.int()) or { return ctx.not_found() }
+	if issue.repo_id != repo.id || issue.is_pr || !app.can_manage_issue(ctx, repo, issue) {
+		return ctx.not_found()
+	}
+	ctx.set_page_title(['Edit ${issue.title} #${issue.id}', '${repo.user_name}/${repo.name}'])
+	return $veb.html('templates/edit_issue.html')
+}
+
+@['/:username/:repo_name/issue/:id/edit'; post]
+pub fn (mut app App) handle_edit_issue(mut ctx Context, username string, repo_name string, id string) veb.Result {
+	if !ctx.logged_in {
+		return ctx.redirect_to_login()
+	}
+	repo := app.find_repo_by_name_and_username(repo_name, username) or { return ctx.not_found() }
+	issue := app.find_issue_by_id(id.int()) or { return ctx.not_found() }
+	if issue.repo_id != repo.id || issue.is_pr || !app.can_manage_issue(ctx, repo, issue) {
+		return ctx.not_found()
+	}
+	title := ctx.form['title']
+	body := ctx.form['text']
+	app.update_issue(issue.id, title, body) or {
+		ctx.error('Issue title is required and content must be within size limits')
+		return app.edit_issue(mut ctx, username, repo_name, id)
+	}
+	app.dispatch_webhook(repo.id, 'issue', WebhookIssuePayload{
+		action: 'updated'
+		repo: '${username}/${repo_name}'
+		title: title.trim_space()
+		author: ctx.user.username
+	})
+	return ctx.redirect('/${username}/${repo_name}/issue/${issue.id}')
+}
+
+@['/:username/:repo_name/issue/:id/labels'; post]
+pub fn (mut app App) handle_add_issue_label(mut ctx Context, username string, repo_name string, id string) veb.Result {
+	if !ctx.logged_in {
+		return ctx.redirect_to_login()
+	}
+	repo := app.find_repo_by_name_and_username(repo_name, username) or { return ctx.not_found() }
+	issue := app.find_issue_by_id(id.int()) or { return ctx.not_found() }
+	label := app.find_repo_label_by_id(repo.id, ctx.form['label_id'].int()) or {
+		return ctx.not_found()
+	}
+	if issue.repo_id != repo.id || issue.is_pr || !app.can_manage_issue(ctx, repo, issue) {
+		return ctx.not_found()
+	}
+	app.add_issue_label(issue.id, label.id) or {
+		ctx.error('Could not add that label')
+		return app.issue(mut ctx, username, repo_name, id)
+	}
+	return ctx.redirect('/${username}/${repo_name}/issue/${issue.id}')
+}
+
+@['/:username/:repo_name/issue/:id/labels/:label_id/delete'; post]
+pub fn (mut app App) handle_remove_issue_label(mut ctx Context, username string, repo_name string, id string, label_id string) veb.Result {
+	if !ctx.logged_in {
+		return ctx.redirect_to_login()
+	}
+	repo := app.find_repo_by_name_and_username(repo_name, username) or { return ctx.not_found() }
+	issue := app.find_issue_by_id(id.int()) or { return ctx.not_found() }
+	label := app.find_repo_label_by_id(repo.id, label_id.int()) or { return ctx.not_found() }
+	if issue.repo_id != repo.id || issue.is_pr || !app.can_manage_issue(ctx, repo, issue) {
+		return ctx.not_found()
+	}
+	app.remove_issue_label(issue.id, label.id) or {
+		ctx.error('Could not remove that label')
+		return app.issue(mut ctx, username, repo_name, id)
+	}
+	return ctx.redirect('/${username}/${repo_name}/issue/${issue.id}')
+}
+
 @['/:username/:repo_name/issue/:id/assign'; post]
 pub fn (mut app App) handle_assign_issue(mut ctx Context, username string, repo_name string, id string) veb.Result {
 	if !ctx.logged_in {
 		return ctx.redirect_to_login()
 	}
 	repo := app.find_repo_by_name_and_username(repo_name, username) or { return ctx.not_found() }
-	if !app.user_can_write_repo(ctx.user.id, repo) {
-		return ctx.not_found()
-	}
 	issue := app.find_issue_by_id(id.int()) or { return ctx.not_found() }
-	if issue.repo_id != repo.id || issue.is_pr {
+	if issue.repo_id != repo.id || issue.is_pr || !app.can_manage_issue(ctx, repo, issue) {
 		return ctx.not_found()
 	}
 	app.assign_issue(issue.id, ctx.form['assignee_id'].int()) or {
@@ -227,11 +324,8 @@ pub fn (mut app App) handle_unassign_issue(mut ctx Context, username string, rep
 		return ctx.redirect_to_login()
 	}
 	repo := app.find_repo_by_name_and_username(repo_name, username) or { return ctx.not_found() }
-	if !app.user_can_write_repo(ctx.user.id, repo) {
-		return ctx.not_found()
-	}
 	issue := app.find_issue_by_id(id.int()) or { return ctx.not_found() }
-	if issue.repo_id != repo.id || issue.is_pr {
+	if issue.repo_id != repo.id || issue.is_pr || !app.can_manage_issue(ctx, repo, issue) {
 		return ctx.not_found()
 	}
 	app.unassign_issue(issue.id, ctx.form['assignee_id'].int()) or {
@@ -263,7 +357,7 @@ fn change_issue_status(mut app App, mut ctx Context, username string, repo_name 
 	if issue.repo_id != repo.id || issue.is_pr {
 		return ctx.not_found()
 	}
-	if issue.author_id != ctx.user.id && !app.user_can_write_repo(ctx.user.id, repo) {
+	if !app.issue_user_can_manage(ctx.user.id, repo, issue) {
 		return ctx.not_found()
 	}
 	if issue.status == status {
@@ -277,8 +371,8 @@ fn change_issue_status(mut app App, mut ctx Context, username string, repo_name 
 	action := if status == .closed { 'closed' } else { 'reopened' }
 	app.dispatch_webhook(repo.id, 'issue', WebhookIssuePayload{
 		action: action
-		repo:   '${username}/${repo_name}'
-		title:  issue.title
+		repo: '${username}/${repo_name}'
+		title: issue.title
 		author: ctx.user.username
 	})
 	return ctx.redirect('/${username}/${repo_name}/issue/${issue.id}')

@@ -2,6 +2,8 @@ module main
 
 import time
 
+const releases_per_page = 20
+
 struct Release {
 	id      int @[primary; sql: serial]
 	repo_id int @[unique: 'release']
@@ -27,10 +29,10 @@ pub fn (mut app App) add_release(tag_id int, repo_id int, date time.Time, notes 
 	}
 
 	release := Release{
-		tag_id:  tag_id
+		tag_id: tag_id
 		repo_id: repo_id
-		notes:   notes
-		date:    date
+		notes: notes
+		date: date
 	}
 
 	sql app.db {
@@ -45,9 +47,8 @@ fn (mut app App) delete_release_for_tag(repo_id int, tag_id int) ! {
 }
 
 pub fn (mut app App) find_repo_releases_as_page(repo_id int, offset int) []Release {
-	// FIXME: 20 -> releases_per_page
 	return sql app.db {
-		select from Release where repo_id == repo_id order by date desc limit 20 offset offset
+		select from Release where repo_id == repo_id order by date desc limit releases_per_page offset offset
 	} or { []Release{} }
 }
 

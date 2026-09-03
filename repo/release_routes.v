@@ -1,9 +1,6 @@
 module main
 
 import veb
-import time
-
-const releases_per_page = 20
 
 @['/:username/:repo_name/releases']
 pub fn (mut app App) releases_default(mut ctx Context, username string, repo_name string) veb.Result {
@@ -19,9 +16,6 @@ pub fn (mut app App) releases(mut ctx Context, username string, repo_name string
 	}
 
 	repo_id := repo.id
-	mut releases := []Release{}
-	mut release := Release{}
-
 	release_count := app.get_repo_release_count(repo_id)
 	page_count := calculate_pages(release_count, releases_per_page)
 	page_i := normalize_page(page, page_count)
@@ -34,28 +28,26 @@ pub fn (mut app App) releases(mut ctx Context, username string, repo_name string
 	rels := app.find_repo_releases_as_page(repo_id, offset)
 	users := app.find_repo_registered_contributor(repo_id)
 
-	mut rel := Release{}
-	mut tag := Tag{}
-	mut user := User{}
-	mut i := 0
-	mut j := 0
-	for i = 0; i < rels.len; i++ {
-		rel = rels[i]
-		release.notes = rel.notes
+	releases := build_release_views(rels, tags, users)
+
+	return $veb.html()
+}
+
+fn build_release_views(rels []Release, tags []Tag, users []User) []Release {
+	mut releases := []Release{cap: rels.len}
+	for rel in rels {
+		mut release := rel
 		mut user_id := 0
 
-		for j = 0; j < tags.len; j++ {
-			tag = tags[j]
+		for tag in tags {
 			if tag.id == rel.tag_id {
 				release.tag_name = tag.name
 				release.tag_hash = tag.hash
-				release.date = time.unix(tag.created_at)
 				user_id = tag.user_id
 				break
 			}
 		}
-		for j = 0; j < users.len; j++ {
-			user = users[j]
+		for user in users {
 			if user.id == user_id {
 				release.user = user.username
 				break
@@ -63,6 +55,5 @@ pub fn (mut app App) releases(mut ctx Context, username string, repo_name string
 		}
 		releases << release
 	}
-
-	return $veb.html()
+	return releases
 }

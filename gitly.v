@@ -76,11 +76,10 @@ mut:
 	logged_in      bool
 	path_split     []string
 	branch         string
-	lang           Lang = .en //.ru
+	lang           Lang = .en // .ru
 }
 
 // fn C.sqlite3_config(int)
-
 fn new_app() !&App {
 	// C.sqlite3_config(3)
 	conf := config.read_config('./config.json') or {
@@ -89,8 +88,8 @@ fn new_app() !&App {
 
 	mut app := &App{
 		// db: sqlite.connect('gitly.sqlite') or { panic(err) }
-		db:         connect_db(conf)!
-		config:     conf
+		db: connect_db(conf)!
+		config: conf
 		started_at: time.now().unix()
 	}
 
@@ -179,11 +178,11 @@ pub fn (mut app App) before_request(mut ctx Context) bool {
 		ctx.text('Forbidden: cross-site state-changing request')
 		return false
 	}
-	$if trace_prealloc ? {
+	$if trace_prealloc? {
 		unsafe { prealloc_scope_checkpoint(c'gitly before_request start') }
 	}
 	ctx.logged_in = app.is_logged_in(mut ctx)
-	$if trace_prealloc ? {
+	$if trace_prealloc? {
 		unsafe { prealloc_scope_checkpoint(c'gitly checked login') }
 	}
 	if ctx.logged_in {
@@ -192,7 +191,7 @@ pub fn (mut app App) before_request(mut ctx Context) bool {
 			User{}
 		}
 	}
-	$if trace_prealloc ? {
+	$if trace_prealloc? {
 		unsafe { prealloc_scope_checkpoint(c'gitly loaded user') }
 	}
 	lang_cookie := ctx.get_cookie('lang') or { '' }
@@ -205,7 +204,7 @@ pub fn (mut app App) before_request(mut ctx Context) bool {
 		else { Lang.en }
 	}
 
-	$if trace_prealloc ? {
+	$if trace_prealloc? {
 		unsafe { prealloc_scope_checkpoint(c'gitly loaded lang') }
 	}
 	return true
@@ -245,15 +244,13 @@ fn url_source_matches_host(source string, request_host string) bool {
 		}
 		rest := value[scheme.len..]
 		source_authority := rest.all_before('/').all_before('?').all_before('#')
-		return normalize_url_authority(source_authority, scheme) == normalize_url_authority(request_host.trim_space().to_lower(),
-			scheme)
+		return normalize_url_authority(source_authority, scheme) == normalize_url_authority(request_host.trim_space().to_lower(), scheme)
 	}
 	return false
 }
 
 fn normalize_url_authority(authority string, scheme string) string {
-	if (scheme == 'http://' && authority.ends_with(':80'))
-		|| (scheme == 'https://' && authority.ends_with(':443')) {
+	if (scheme == 'http://' && authority.ends_with(':80')) || (scheme == 'https://' && authority.ends_with(':443')) {
 		return authority.all_before_last(':')
 	}
 	return authority
@@ -402,7 +399,7 @@ fn (mut app App) create_tables() ! {
 	sql app.db {
 		create table File
 	}! // missing ON CONFLIC REPLACE
-	//"created_at int default (strftime('%s', 'now'))"
+	// "created_at int default (strftime('%s', 'now'))"
 	sql app.db {
 		create table Issue
 	}!
@@ -415,7 +412,7 @@ fn (mut app App) create_tables() ! {
 	sql app.db {
 		create table IssueAssignee
 	}!
-	//"created_at int default (strftime('%s', 'now'))"
+	// "created_at int default (strftime('%s', 'now'))"
 	sql app.db {
 		create table Commit
 	}!
@@ -592,6 +589,11 @@ fn (mut app App) migrate_tables() ! {
 	app.db.exec('create index if not exists idx_repo_fork_source on ${sql_table('RepoFork')} (source_repo_id, created_at desc)')!
 	app.db.exec('create index if not exists idx_repo_mirror_due on ${sql_table('RepoMirror')} (enabled, next_update_at)')!
 	app.db.exec('create index if not exists idx_issue_assignee_user on ${sql_table('IssueAssignee')} (user_id, issue_id)')!
+	// Old imports used a read-before-insert check, which could still race. Remove
+	// any duplicate links before enforcing the relationship at the database
+	// layer for both upgraded and fresh installations.
+	app.db.exec('delete from ${sql_table('IssueLabel')} where ${sql_table('id')} not in (\n\t\tselect min(${sql_table('id')}) from ${sql_table('IssueLabel')}\n\t\tgroup by ${sql_table('issue_id')}, ${sql_table('label_id')}\n\t)')!
+	app.db.exec('create unique index if not exists idx_issue_label_unique on ${sql_table('IssueLabel')} (issue_id, label_id)')!
 	app.db.exec('create index if not exists idx_api_token_hash on ${sql_table('ApiToken')} (token_hash)')!
 	app.db.exec('create index if not exists idx_pr_approval_head on ${sql_table('PrApproval')} (pr_id, approved_head_oid)')!
 	app.db.exec('create unique index if not exists idx_user_github_id on ${sql_table('User')} (${sql_table('github_id')}) where ${sql_table('github_id')} > 0')!
@@ -604,20 +606,7 @@ fn (mut app App) migrate_tables() ! {
 // with no administrator, promote its oldest registered account. This also
 // makes the migration self-healing after an interrupted first registration.
 fn (mut app App) backfill_bootstrap_administrator() ! {
-	app.db.exec('update ${sql_table('User')} set
-		${sql_table('is_admin')} = true,
-		${sql_table('is_bootstrap_admin')} = true
-		where ${sql_table('id')} = (
-			select ${sql_table('id')} from ${sql_table('User')}
-			where ${sql_table('is_registered')} is true
-			order by case when ${sql_table('is_admin')} is true then 0 else 1 end,
-				${sql_table('id')} asc
-			limit 1
-		)
-		and not exists (
-			select 1 from ${sql_table('User')}
-			where ${sql_table('is_bootstrap_admin')} is true
-		)')!
+	app.db.exec('update ${sql_table('User')} set\n\t\t${sql_table('is_admin')} = true,\n\t\t${sql_table('is_bootstrap_admin')} = true\n\t\twhere ${sql_table('id')} = (\n\t\t\tselect ${sql_table('id')} from ${sql_table('User')}\n\t\t\twhere ${sql_table('is_registered')} is true\n\t\t\torder by case when ${sql_table('is_admin')} is true then 0 else 1 end,\n\t\t\t\t${sql_table('id')} asc\n\t\t\tlimit 1\n\t\t)\n\t\tand not exists (\n\t\t\tselect 1 from ${sql_table('User')}\n\t\t\twhere ${sql_table('is_bootstrap_admin')} is true\n\t\t)')!
 }
 
 fn (mut app App) clear_legacy_local_github_usernames() ! {
@@ -665,7 +654,7 @@ fn (mut app App) add_missing_column(table_name string, column_name string, colum
 fn (mut ctx Context) json_success[T](result T) veb.Result {
 	response := api.ApiSuccessResponse[T]{
 		success: true
-		result:  result
+		result: result
 	}
 
 	return ctx.json(response)

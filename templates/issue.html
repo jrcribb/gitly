@@ -14,13 +14,53 @@
 			@include 'layout/repo_menu.html'
 
 			<div class="issue-header">
-				<h1 class="issue-header__title">@{issue.formatted_title()} <span class="issue-header__id">#@issue.id</span></h1>
-				@if issue.is_open()
-					<span class="pr-status-badge pr-status--open">Open</span>
-				@else
-					<span class="pr-status-badge pr-status--closed">Closed</span>
+				<div>
+					<h1 class="issue-header__title">@{issue.formatted_title()} <span class="issue-header__id">#@issue.id</span></h1>
+					@if issue.is_open()
+						<span class="pr-status-badge pr-status--open">Open</span>
+					@else
+						<span class="pr-status-badge pr-status--closed">Closed</span>
+					@end
+				</div>
+				@if can_manage
+					<a class="button" href="/@repo.user_name/@repo.name/issue/@issue.id/edit">Edit</a>
 				@end
 			</div>
+
+			<section class="issue-labels" aria-labelledby="issue-labels-heading">
+				<div class="issue-assignees__header">
+					<h2 id="issue-labels-heading">Labels</h2>
+					@if issue.labels.len == 0
+						<span>None</span>
+					@end
+					<a href="/@repo.user_name/@repo.name/labels">View project labels</a>
+				</div>
+				@if issue.labels.len > 0
+					<div class="issue-row__labels">
+						@for label in issue.labels
+							<span class="issue-label-control">
+								<span class="issue-label" style="background-color: #@label.color">@label.name</span>
+								@if can_manage
+									<form method="post" action="/@repo.user_name/@repo.name/issue/@issue.id/labels/@label.id/delete" class="inline-form">
+										<button type="submit" class="issue-label__remove" aria-label="Remove @label.name label">&times;</button>
+									</form>
+								@end
+							</span>
+						@end
+					</div>
+				@end
+				@if can_manage && available_labels.len > 0
+					<form method="post" action="/@repo.user_name/@repo.name/issue/@issue.id/labels" class="issue-labels__form">
+						<label for="label_id">Add label</label>
+						<select id="label_id" name="label_id" required>
+							@for label in available_labels
+								<option value="@label.id">@label.name</option>
+							@end
+						</select>
+						<button type="submit">Add</button>
+					</form>
+				@end
+			</section>
 
 			<div class="issue-post">
 				<a href="/@issue_author.username" class="issue-post__avatar">

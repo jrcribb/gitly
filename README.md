@@ -9,8 +9,8 @@ It provides:
 - Multiple users, personal and organization repositories, and public/private visibility
 - Git clone, fetch, and push over HTTP(S) and OpenSSH
 - Repository browsing, syntax highlighting, Markdown rendering, language statistics, and a “Top files” view
-- Issues with assignees, merge requests with reviews, required approvals, squash/merge support, discussions, projects, milestones, releases, stars, and watches
-- Reporter/Developer/Maintainer project roles and protected branches with wildcard rules, push/merge controls, deletion protection, and force-push rejection
+- Editable issues with assignees and project labels; merge requests with reviews, required approvals, squash/merge support; plus discussions, projects, milestones, releases, stars, and watches
+- Reporter/Developer/Maintainer project roles and branch creation/deletion with protected-branch wildcard rules, push/merge controls, deletion protection, and force-push rejection
 - Webhooks, scoped/expiring personal access tokens, two-factor authentication, security logs, and optional CI integration
 - Repository forks with upstream synchronization and cross-fork merge requests
 - Scheduled/manual pull and push mirrors over HTTPS or SSH, with encrypted credentials

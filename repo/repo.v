@@ -20,9 +20,9 @@ struct Repo {
 	is_deleted         bool
 	users_contributed  []string @[skip]
 	users_authorized   []string @[skip]
-	nr_topics          int      @[skip]
+	nr_topics          int @[skip]
 	views_count        int
-	latest_update_hash string    @[skip]
+	latest_update_hash string @[skip]
 	latest_activity    time.Time @[skip]
 mut:
 	clone_url           string @[skip]
@@ -34,15 +34,15 @@ mut:
 	nr_releases         int @[orm: 'releases_count']
 	nr_branches         int @[orm: 'branches_count']
 	nr_tags             int
-	nr_stars            int        @[orm: 'stars_count']
+	nr_stars            int @[orm: 'stars_count']
 	lang_stats          []LangStat @[skip]
 	created_at          int
 	nr_contributors     int
 	labels              []Label @[skip]
 	status              RepoStatus
 	msg_cache           map[string]string @[skip]
-	latest_commit_at    int               @[skip]
-	activity_buckets    []int             @[skip]
+	latest_commit_at    int @[skip]
+	activity_buckets    []int @[skip]
 	disable_discussions bool
 	disable_projects    bool
 	disable_milestones  bool
@@ -70,7 +70,8 @@ fn (r &Repo) wiki_enabled() bool {
 // log_field_separator is declared as constant in case we need to change it later
 const max_free_clone_size_bytes = u64(100) * 1024 * 1024
 const search_results_limit = 50
-const log_field_separator = '\x7F'
+const search_candidate_limit = 250
+const log_field_separator = '\x7f'
 const ignored_folder = ['thirdparty']
 
 enum RepoStatus {
@@ -117,7 +118,6 @@ fn (mut app App) save_repo(repo Repo) ! {
 
 	// XTODO sql update all fields automatically
 	// repo.update()
-
 	sql app.db {
 		update Repo set description = desc, views_count = views_count, is_public = is_public,
 		webhook_secret = webhook_secret, tags_count = tags_count, nr_open_issues = open_issues_count,
@@ -220,23 +220,33 @@ fn (mut app App) find_user_profile_repos(user_id int, include_private bool) []Re
 }
 
 fn (mut app App) search_public_repos(query string) []Repo {
-	repo_rows := db_exec_values(mut app.db,
-		'select id, name, user_name, description, stars_count from ${sql_table('Repo')} where is_public is true and is_deleted is false and name like ${sql_like_pattern(query)} limit ${search_results_limit}') or {
+	return app.search_repos(query, 0)
+}
+
+// search_repos searches project name, namespace, and description, then applies
+// the same visibility policy as direct repository access. This keeps private
+// projects discoverable to their members without leaking them to anonymous or
+// unrelated users.
+fn (mut app App) search_repos(query string, user_id int) []Repo {
+	pattern := sql_like_pattern(query)
+	repo_rows := db_exec_values(mut app.db, 'select id from ${sql_table('Repo')} where is_deleted is false and (\n\t\t\tlower(name) like lower(${pattern}) or lower(user_name) like lower(${pattern}) or lower(description) like lower(${pattern})\n\t\t) order by nr_stars desc, name asc limit ${search_candidate_limit}') or {
+		app.warn('Repository search failed: ${err}')
 		return []
 	}
-
-	mut repos := []Repo{}
-
+	mut repos := []Repo{cap: search_results_limit}
 	for row in repo_rows {
-		repos << Repo{
-			id:          row[0].int()
-			name:        row[1]
-			user_name:   row[2]
-			description: row[3]
-			nr_stars:    row[4].int()
+		if row.len == 0 {
+			continue
+		}
+		repo := app.find_repo_by_id(row[0].int()) or { continue }
+		if !app.user_has_repo_read_access(user_id, repo) {
+			continue
+		}
+		repos << repo
+		if repos.len == search_results_limit {
+			break
 		}
 	}
-
 	return repos
 }
 
@@ -495,10 +505,7 @@ fn (mut app App) delete_repository(id int, path string, name string) ! {
 	// Lock and revalidate the active repository before deleting related state.
 	// Without one transaction, a failure halfway through left a still-visible
 	// repository with transfers, mirrors, permissions, or branch rules missing.
-	locked := tx.execute('update ${sql_table('Repo')} set ${sql_table('id')} = ${sql_table('id')}
-		where ${sql_table('id')} = ${repo_id}
-		and ${sql_table('is_deleted')} is false
-		returning ${sql_table('id')}')!
+	locked := tx.execute('update ${sql_table('Repo')} set ${sql_table('id')} = ${sql_table('id')}\n\t\twhere ${sql_table('id')} = ${repo_id}\n\t\tand ${sql_table('is_deleted')} is false\n\t\treturning ${sql_table('id')}')!
 	if locked.len != 1 {
 		return error('repository is no longer available')
 	}
@@ -562,6 +569,7 @@ fn (mut app App) user_has_repo(user_id int, repo_name string) bool {
 fn (mut app App) update_repo_from_fs(mut repo Repo, recompute_lang_stats bool) ! {
 	println('UPDATE REPO FROM FS')
 	repo_id := repo.id
+
 	// This refresh rebuilds derived cache tables through helpers that currently
 	// accept App rather than orm.Tx. Never bracket those pooled DB calls with raw
 	// BEGIN/COMMIT: PostgreSQL may serve each call on a different connection and
@@ -701,8 +709,7 @@ fn (mut app App) update_repo_branch_data(mut repo Repo, branch_name string) ! {
 				commit_author_id = user.id
 			}
 
-			app.add_commit(repo_id, branch.id, commit_hash, commit_author, commit_author_id,
-				commit_message, int(commit_date.unix()))!
+			app.add_commit(repo_id, branch.id, commit_hash, commit_author, commit_author_id, commit_message, int(commit_date.unix()))!
 		}
 	}
 	app.prune_branch_commit_links(repo_id, branch.id, reachable)!
@@ -762,7 +769,7 @@ fn (mut app App) update_repo_after_ref_changes(repo_id int, updates []git.GitRef
 // handle is not safe for concurrent use across threads.
 fn bg_recompute_lang_stats(repo_id int, conf config.Config) {
 	mut app := &App{
-		db:     connect_db(conf) or {
+		db: connect_db(conf) or {
 			eprintln('bg_recompute_lang_stats: cannot open ${db_backend_name()} db: ${err}')
 			return
 		}
@@ -823,10 +830,10 @@ fn (r &Repo) analyze_lang(app &App) ! {
 		}
 		lang_data := langs[lang]
 		d_lang_stats << LangStat{
-			repo_id:     r.id
-			name:        lang_data.name
-			pct:         pct
-			color:       lang_data.color
+			repo_id: r.id
+			name: lang_data.name
+			pct: pct
+			color: lang_data.color
 			lines_count: amount
 		}
 	}
@@ -951,12 +958,12 @@ fn (r &Repo) parse_ls(ls_line string, branch string) ?File {
 	}
 
 	return File{
-		name:               item_name
-		parent_path:        parent_path
-		repo_id:            r.id
-		branch:             branch
-		is_dir:             item_type == 'tree'
-		size:               if item_type == 'blob' { item_size.int() } else { 0 }
+		name: item_name
+		parent_path: parent_path
+		repo_id: r.id
+		branch: branch
+		is_dir: item_type == 'tree'
+		size: if item_type == 'blob' { item_size.int() } else { 0 }
 		is_size_calculated: item_type == 'blob'
 	}
 }
@@ -972,8 +979,7 @@ fn (r &Repo) parse_top_file_line(line string, branch string) ?File {
 
 	lower_path := item_path.to_lower()
 	for segment in lower_path.split('/') {
-		if segment == 'thirdparty' || segment == '3rdparty' || segment == 'third_party'
-			|| segment == 'third-party' {
+		if segment == 'thirdparty' || segment == '3rdparty' || segment == 'third_party' || segment == 'third-party' {
 			return none
 		}
 	}
@@ -994,12 +1000,12 @@ fn (r &Repo) parse_top_file_line(line string, branch string) ?File {
 	parent_path := if parent_path_raw == '.' { '' } else { parent_path_raw }
 
 	return File{
-		name:               item_name
-		parent_path:        parent_path
-		repo_id:            r.id
-		branch:             branch
-		is_dir:             false
-		size:               meta_parts[3].int()
+		name: item_name
+		parent_path: parent_path
+		repo_id: r.id
+		branch: branch
+		is_dir: false
+		size: meta_parts[3].int()
 		is_size_calculated: true
 	}
 }
@@ -1025,12 +1031,12 @@ fn (r &Repo) lookup_file_via_git(branch string, path string) ?File {
 		parent_path_raw := os.dir(item_path)
 		parent_path := if parent_path_raw == '.' { '' } else { parent_path_raw }
 		return File{
-			name:               item_name
-			parent_path:        parent_path
-			repo_id:            r.id
-			branch:             branch
-			is_dir:             false
-			size:               meta_parts[3].int()
+			name: item_name
+			parent_path: parent_path
+			repo_id: r.id
+			branch: branch
+			is_dir: false
+			size: meta_parts[3].int()
 			is_size_calculated: true
 		}
 	}
@@ -1217,8 +1223,7 @@ fn normalize_tree_path(path string) string {
 }
 
 fn (r Repo) get_last_branch_commit_hash(branch_name string) string {
-	git_result := git.Git.exec_in_dir(r.git_dir,
-		['log', '-n', '1', branch_name, '--pretty=format:%H'])
+	git_result := git.Git.exec_in_dir(r.git_dir, ['log', '-n', '1', branch_name, '--pretty=format:%H'])
 	git_output := git_result.output
 
 	if git_result.exit_code != 0 {
@@ -1369,8 +1374,8 @@ fn first_line(s string) string {
 }
 
 fn (mut app App) fetch_file_info(r &Repo, file &File) ! {
-	result := git.Git.exec_in_dir(r.git_dir, ['log', '-n1', '--format=%B___%at___%H___%an', file.branch,
-		'--', file.full_path()])
+	result := git.Git.exec_in_dir(r.git_dir, ['log', '-n1', '--format=%B___%at___%H___%an',
+		file.branch, '--', file.full_path()])
 	if result.exit_code != 0 {
 		return error('could not fetch file history: ${result.output}')
 	}
@@ -1480,14 +1485,13 @@ fn repo_has_branch(repo_dir string, branch string) bool {
 	if branch == '' {
 		return false
 	}
-	res := git.Git.exec_in_dir(repo_dir,
-		['show-ref', '--verify', '--quiet', 'refs/heads/${branch}'])
+	res := git.Git.exec_in_dir(repo_dir, ['show-ref', '--verify', '--quiet', 'refs/heads/${branch}'])
 	return res.exit_code == 0
 }
 
 fn detect_primary_branch(repo_dir string, fallback string) string {
-	for branch in [remote_default_branch(repo_dir) or { '' },
-		local_head_branch(repo_dir) or { '' }, fallback, 'main', 'master'] {
+	for branch in [remote_default_branch(repo_dir) or { '' }, local_head_branch(repo_dir) or { '' },
+		fallback, 'main', 'master'] {
 		if repo_has_branch(repo_dir, branch) {
 			return branch
 		}
@@ -1504,14 +1508,12 @@ fn point_head_to_branch(repo_dir string, branch string) bool {
 }
 
 fn (mut r Repo) clone_from_existing(source Repo, enforce_size_limit bool) CloneReuseResult {
-	if source.git_dir == '' || source.git_dir == r.git_dir || !os.exists(source.git_dir)
-		|| !os.is_dir(source.git_dir) || os.exists(r.git_dir) {
+	if source.git_dir == '' || source.git_dir == r.git_dir || !os.exists(source.git_dir) || !os.is_dir(source.git_dir) || os.exists(r.git_dir) {
 		return .unavailable
 	}
 	progress_path := r.clone_progress_path()
 	os.rm(progress_path) or {}
-	append_clone_progress(progress_path,
-		'Reusing existing local clone from ${source.user_name}/${source.name}')
+	append_clone_progress(progress_path, 'Reusing existing local clone from ${source.user_name}/${source.name}')
 	tmp_path := '${r.git_dir}.tmp-${os.getpid()}-${time.ticks()}'
 	os.rmdir_all(tmp_path) or {}
 	// Go through upload-pack instead of copying the bare directory byte-for-byte.
@@ -1523,26 +1525,22 @@ fn (mut r Repo) clone_from_existing(source Repo, enforce_size_limit bool) CloneR
 	// freshly initialized bare repository.
 	local_clone := git.Git.exec(['clone', '--bare', '--no-local', source.git_dir, tmp_path])
 	if !git_result_ok(local_clone) {
-		append_clone_progress(progress_path,
-			'Local clone reuse failed while copying; falling back to git clone.')
+		append_clone_progress(progress_path, 'Local clone reuse failed while copying; falling back to git clone.')
 		os.rmdir_all(tmp_path) or {}
 		eprintln('failed to clone reusable repo ${source.git_dir} to ${tmp_path}: ${local_clone.output}')
 		return .unavailable
 	}
 	os.mv(tmp_path, r.git_dir, overwrite: false) or {
-		append_clone_progress(progress_path,
-			'Local clone reuse failed while installing copy; falling back to git clone.')
+		append_clone_progress(progress_path, 'Local clone reuse failed while installing copy; falling back to git clone.')
 		os.rmdir_all(tmp_path) or {}
 		eprintln('failed to move reusable repo ${tmp_path} to ${r.git_dir}: ${err}')
 		return .unavailable
 	}
 	set_url_result := git.Git.exec_in_dir(r.git_dir, ['remote', 'set-url', 'origin', r.clone_url])
 	if !git_result_ok(set_url_result) {
-		add_origin_result := git.Git.exec_in_dir(r.git_dir,
-			['remote', 'add', 'origin', r.clone_url])
+		add_origin_result := git.Git.exec_in_dir(r.git_dir, ['remote', 'add', 'origin', r.clone_url])
 		if !git_result_ok(add_origin_result) {
-			append_clone_progress(progress_path,
-				'Local clone reuse failed while resetting origin; falling back to git clone.')
+			append_clone_progress(progress_path, 'Local clone reuse failed while resetting origin; falling back to git clone.')
 			os.rmdir_all(r.git_dir) or {}
 			eprintln('failed to set origin for reused repo ${r.git_dir}: ${set_url_result.output}${add_origin_result.output}')
 			return .unavailable
@@ -1552,8 +1550,7 @@ fn (mut r Repo) clone_from_existing(source Repo, enforce_size_limit bool) CloneR
 	fetch_result := git.Git.exec_in_dir(r.git_dir, ['fetch', '--prune', 'origin',
 		'+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*'])
 	if !git_result_ok(fetch_result) {
-		append_clone_progress(progress_path,
-			'Local clone reuse failed while fetching updates; falling back to git clone.')
+		append_clone_progress(progress_path, 'Local clone reuse failed while fetching updates; falling back to git clone.')
 		os.rmdir_all(r.git_dir) or {}
 		eprintln('failed to fetch reused repo ${r.git_dir}: ${fetch_result.output}')
 		return .unavailable
@@ -1577,8 +1574,7 @@ fn (mut r Repo) clone(enforce_size_limit bool) {
 	eprintln('R CLONE')
 	progress_path := r.clone_progress_path()
 	max_clone_size_bytes := if enforce_size_limit { max_free_clone_size_bytes } else { u64(0) }
-	clone_result := git.Git.clone_with_progress_limit(r.clone_url, r.git_dir, progress_path,
-		max_clone_size_bytes)
+	clone_result := git.Git.clone_with_progress_limit(r.clone_url, r.git_dir, progress_path, max_clone_size_bytes)
 	clone_exit_code := clone_result.exit_code
 
 	if enforce_size_limit && clone_exit_code == git.clone_size_limit_exit_code {
@@ -1616,8 +1612,8 @@ fn (r &Repo) read_file(branch string, path string) string {
 
 	println('read_file() path=${valid_path}')
 	t := time.now()
-	// s := r.git('--no-pager show ${branch}:${valid_path}')
 
+	// s := r.git('--no-pager show ${branch}:${valid_path}')
 	s := git.Git.show_file_blob(r.git_dir, branch, valid_path) or { '' }
 	println(time.since(t))
 	println(':)')
@@ -1625,8 +1621,7 @@ fn (r &Repo) read_file(branch string, path string) string {
 }
 
 fn find_readme_file(items []File) ?File {
-	files := items.filter(it.name.to_lower().starts_with('readme.') && it.name.split('.').len == 2
-		&& !it.is_dir)
+	files := items.filter(it.name.to_lower().starts_with('readme.') && it.name.split('.').len == 2 && !it.is_dir)
 
 	if files.len == 0 {
 		return none

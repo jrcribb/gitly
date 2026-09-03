@@ -30,10 +30,9 @@ fn (mut app App) handle_commits_count(mut ctx Context, username string, repo_nam
 	count := app.get_repo_commit_count(repo.id, branch.id)
 
 	// app.debug("${branch} ${count}" )
-
 	return ctx.json(api.ApiCommitCount{
 		success: true
-		result:  count
+		result: count
 	})
 }
 
@@ -66,8 +65,6 @@ fn (mut app App) render_commits(mut ctx Context, username string, repo_name stri
 	}
 	commits_count := app.get_repo_commit_count(repo.id, branch.id)
 
-	// FIXME: b_author always false
-	b_author := false
 	page_count := calculate_pages(commits_count, commits_per_page)
 	page_i := normalize_page(page, page_count)
 	offset := commits_per_page * page_i
@@ -82,20 +79,12 @@ fn (mut app App) render_commits(mut ctx Context, username string, repo_name stri
 	mut author_usernames := map[int]string{}
 	for commit in commits {
 		date := time.unix(commit.created_at)
-		author := commit.author_id.str()
 		date_s := date.custom_format('MMMM D, YYYY')
 
-		if b_author {
-			if author !in d_commits {
-				d_commits[author] = []Commit{}
-			}
-			d_commits[author] << commit
-		} else {
-			if date_s !in d_commits {
-				d_commits[date_s] = []Commit{}
-			}
-			d_commits[date_s] << commit
+		if date_s !in d_commits {
+			d_commits[date_s] = []Commit{}
 		}
+		d_commits[date_s] << commit
 
 		if commit.author_id != 0 && commit.author_id !in author_avatars {
 			if user := app.get_user_by_id(commit.author_id) {

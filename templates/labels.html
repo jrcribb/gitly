@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		@include 'layout/head.html'
+	</head>
+	<body>
+		@include 'layout/header.html'
+
+		.form-error {
+			@ctx.form_error
+		}
+
+		<div class="content">
+			@include 'layout/repo_menu.html'
+
+			<div class="issues-header">
+				<h1 class="issues-header__title">Labels</h1>
+				<a href="/@repo.user_name/@repo.name/issues">Back to issues</a>
+			</div>
+
+			@if labels.len == 0
+				<p>No labels have been created for this project.</p>
+			@else
+				<div class="label-list">
+					@for label in labels
+						<div class="label-list__item">
+							<span class="issue-label" style="background-color: #@label.color">@label.name</span>
+							@if can_manage
+								<form method="post" action="/@repo.user_name/@repo.name/labels/@label.id" class="label-list__form">
+									<label>Name <input type="text" name="name" value="@label.name" maxlength="100" required></label>
+									<label>Color <input type="text" name="color" value="#@label.color" pattern="#?[0-9a-fA-F]{6}" maxlength="7" required></label>
+									<button type="submit">Save</button>
+								</form>
+								<form method="post" action="/@repo.user_name/@repo.name/labels/@label.id/delete" class="inline-form">
+									<button type="submit" class="link-button link-button--danger">Delete</button>
+								</form>
+							@end
+						</div>
+					@end
+				</div>
+			@end
+
+			@if can_manage
+				<h2>Create label</h2>
+				<form method="post" action="/@repo.user_name/@repo.name/labels" class="form vertical-form label-create-form">
+					<label>Name <input type="text" name="name" maxlength="100" required></label>
+					<label>Color <input type="text" name="color" value="#428bca" pattern="#?[0-9a-fA-F]{6}" maxlength="7" required></label>
+					<button type="submit">Create label</button>
+				</form>
+			@end
+		</div>
+
+		@js '/js/block-form.js'
+		@include 'layout/footer.html'
+	</body>
+</html>

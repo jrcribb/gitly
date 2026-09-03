@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		@include 'layout/head.html'
+	</head>
+	<body>
+		@include 'layout/header.html'
+
+		.form-error {
+			@ctx.form_error
+		}
+
+		<div class="content">
+			@include 'layout/repo_menu.html'
+
+			<h1>Edit issue #@issue.id</h1>
+			<form method="post" class="form vertical-form" action="/@repo.user_name/@repo.name/issue/@issue.id/edit">
+				<label>Title
+					<input type="text" name="title" value="@issue.title" maxlength="300" required autofocus>
+				</label>
+				<label>Description
+					<textarea name="text" maxlength="100000">@issue.text</textarea>
+				</label>
+				<div class="form-actions">
+					<button type="submit">Save changes</button>
+					<a href="/@repo.user_name/@repo.name/issue/@issue.id">Cancel</a>
+				</div>
+			</form>
+		</div>
+
+		@js '/js/block-form.js'
+		@include 'layout/footer.html'
+	</body>
+</html>

@@ -24,8 +24,9 @@ struct User {
 	is_blocked      bool
 	is_admin        bool
 	oauth_state     string @[skip]
-mut:
+
 	// for github oauth XSRF protection
+mut:
 	namechanges_count               int
 	last_namechange_time            int
 	posts_count                     int
@@ -71,16 +72,7 @@ fn (mut app App) claim_bootstrap_administrator(user_id int) !bool {
 	if user_id <= 0 {
 		return false
 	}
-	rows := db_exec_values(mut app.db, 'update ${sql_table('User')} set
-		${sql_table('is_admin')} = true,
-		${sql_table('is_bootstrap_admin')} = true
-		where ${sql_table('id')} = ${user_id}
-			and ${sql_table('is_registered')} is true
-			and not exists (
-				select 1 from ${sql_table('User')}
-				where ${sql_table('is_bootstrap_admin')} is true
-			)
-		returning ${sql_table('id')}') or {
+	rows := db_exec_values(mut app.db, 'update ${sql_table('User')} set\n\t\t${sql_table('is_admin')} = true,\n\t\t${sql_table('is_bootstrap_admin')} = true\n\t\twhere ${sql_table('id')} = ${user_id}\n\t\t\tand ${sql_table('is_registered')} is true\n\t\t\tand not exists (\n\t\t\t\tselect 1 from ${sql_table('User')}\n\t\t\t\twhere ${sql_table('is_bootstrap_admin')} is true\n\t\t\t)\n\t\treturning ${sql_table('id')}') or {
 		// PostgreSQL can let two statements reach the unique index together;
 		// the loser is an expected non-claim, not a registration failure.
 		if is_unique_constraint_error(err) {
@@ -116,7 +108,7 @@ fn compare_password_with_hash(password string, salt string, hashed string) bool 
 // salted-SHA-256 scheme (anything that is not a bcrypt `$2...` hash) and should
 // be upgraded to bcrypt after a successful login.
 fn password_hash_is_legacy(hashed string) bool {
-	return !hashed.starts_with('$2')
+	return !hashed.starts_with('\$2')
 }
 
 // maybe_upgrade_password_hash rehashes a legacy password with bcrypt after the
@@ -212,7 +204,7 @@ pub fn (mut app App) register_user(username string, password string, salt string
 			if matching_emails.len == 0 {
 				user_email := Email{
 					user_id: username_user.id
-					email:   candidate_email
+					email: candidate_email
 				}
 				sql tx {
 					insert user_email into Email
@@ -237,15 +229,15 @@ pub fn (mut app App) register_user(username string, password string, salt string
 	}
 
 	user := User{
-		username:        account_name
-		password:        password
-		salt:            salt
-		created_at:      time.now()
-		is_registered:   true
-		is_github:       github
+		username: account_name
+		password: password
+		salt: salt
+		created_at: time.now()
+		is_registered: true
+		is_github: github
 		github_username: if github { account_name } else { '' }
-		avatar:          default_avatar_name
-		is_admin:        is_admin
+		avatar: default_avatar_name
+		is_admin: is_admin
 	}
 
 	sql tx {
@@ -267,7 +259,7 @@ pub fn (mut app App) register_user(username string, password string, salt string
 	for email in clean_emails {
 		user_email := Email{
 			user_id: created.id
-			email:   email
+			email: email
 		}
 		sql tx {
 			insert user_email into Email
@@ -324,7 +316,7 @@ pub fn (mut app App) add_user(user User) ! {
 pub fn (mut app App) add_email(user_id int, email string) ! {
 	user_email := Email{
 		user_id: user_id
-		email:   email
+		email: email
 	}
 
 	sql app.db {
@@ -473,17 +465,15 @@ pub fn (mut app App) get_all_registered_user_count() int {
 }
 
 fn (mut app App) search_users(query string) []User {
-	q :=
-		'select id, full_name, username, avatar from ${sql_table('User')} where is_blocked is false and ' +
-		'(username like ${sql_like_pattern(query)} or full_name like ${sql_like_pattern(query)}) limit ${search_results_limit}'
+	q := 'select id, full_name, username, avatar from ${sql_table('User')} where is_registered is true and is_blocked is false and ' + '(lower(username) like lower(${sql_like_pattern(query)}) or lower(full_name) like lower(${sql_like_pattern(query)})) limit ${search_results_limit}'
 	repo_rows := db_exec_values(mut app.db, q) or { return [] }
 	mut users := []User{}
 	for row in repo_rows {
 		users << User{
-			id:        row[0].int()
+			id: row[0].int()
 			full_name: row[1]
-			username:  row[2]
-			avatar:    row[3]
+			username: row[2]
+			avatar: row[3]
 		}
 	}
 	return users
@@ -527,8 +517,7 @@ pub fn (mut app App) increment_user_post(mut user User) ! {
 }
 
 fn user_post_window_expired(user User, now int) bool {
-	return user.last_post_time <= 0
-		|| now >= user.last_post_time + int(24 * time.hour / time.second)
+	return user.last_post_time <= 0 || now >= user.last_post_time + int(24 * time.hour / time.second)
 }
 
 fn user_reached_post_limit(user User, now int) bool {
@@ -542,24 +531,7 @@ fn user_reached_post_limit(user User, now int) bool {
 pub fn (mut app App) record_failed_login(user_id int, now i64) ! {
 	window_cutoff := now - login_attempt_window_seconds
 	throttled_until := now + login_throttle_seconds
-	app.db.exec('update ${sql_table('User')} set
-		${sql_table('login_attempts')} = case
-			when ${sql_table('login_throttled_until')} > ${now} then ${sql_table('login_attempts')}
-			when ${sql_table('login_attempt_window_started_at')} <= ${window_cutoff} then 1
-			else ${sql_table('login_attempts')} + 1
-		end,
-		${sql_table('login_attempt_window_started_at')} = case
-			when ${sql_table('login_throttled_until')} > ${now} then ${sql_table('login_attempt_window_started_at')}
-			when ${sql_table('login_attempt_window_started_at')} <= ${window_cutoff} then ${now}
-			else ${sql_table('login_attempt_window_started_at')}
-		end,
-		${sql_table('login_throttled_until')} = case
-			when ${sql_table('login_throttled_until')} > ${now} then ${sql_table('login_throttled_until')}
-			when ${sql_table('login_attempt_window_started_at')} <= ${window_cutoff} then 0
-			when ${sql_table('login_attempts')} + 1 >= ${max_login_attempts} then ${throttled_until}
-			else 0
-		end
-		where ${sql_table('id')} = ${user_id}')!
+	app.db.exec('update ${sql_table('User')} set\n\t\t${sql_table('login_attempts')} = case\n\t\t\twhen ${sql_table('login_throttled_until')} > ${now} then ${sql_table('login_attempts')}\n\t\t\twhen ${sql_table('login_attempt_window_started_at')} <= ${window_cutoff} then 1\n\t\t\telse ${sql_table('login_attempts')} + 1\n\t\tend,\n\t\t${sql_table('login_attempt_window_started_at')} = case\n\t\t\twhen ${sql_table('login_throttled_until')} > ${now} then ${sql_table('login_attempt_window_started_at')}\n\t\t\twhen ${sql_table('login_attempt_window_started_at')} <= ${window_cutoff} then ${now}\n\t\t\telse ${sql_table('login_attempt_window_started_at')}\n\t\tend,\n\t\t${sql_table('login_throttled_until')} = case\n\t\t\twhen ${sql_table('login_throttled_until')} > ${now} then ${sql_table('login_throttled_until')}\n\t\t\twhen ${sql_table('login_attempt_window_started_at')} <= ${window_cutoff} then 0\n\t\t\twhen ${sql_table('login_attempts')} + 1 >= ${max_login_attempts} then ${throttled_until}\n\t\t\telse 0\n\t\tend\n\t\twhere ${sql_table('id')} = ${user_id}')!
 }
 
 pub fn (mut app App) reset_user_login_throttle(user_id int) ! {
@@ -600,8 +572,7 @@ fn (mut app App) change_username(user_id int, old_username string, username stri
 		new_git_dir := if repo.git_dir == '' {
 			''
 		} else {
-			rebase_user_repo_git_dir(app.config.repo_storage_path, old_username, username,
-				repo.git_dir)!
+			rebase_user_repo_git_dir(app.config.repo_storage_path, old_username, username, repo.git_dir)!
 		}
 		repo_id := repo.id
 		sql tx {
@@ -618,8 +589,7 @@ fn (mut app App) change_username(user_id int, old_username string, username stri
 }
 
 fn rebase_user_repo_git_dir(storage_root string, old_username string, new_username string, git_dir string) !string {
-	old_owner_abs :=
-		os.abs_path(os.join_path(storage_root, old_username)).trim_right(os.path_separator)
+	old_owner_abs := os.abs_path(os.join_path(storage_root, old_username)).trim_right(os.path_separator)
 	repo_abs := os.abs_path(git_dir).trim_right(os.path_separator)
 	old_prefix := old_owner_abs + os.path_separator
 	if repo_abs == old_owner_abs || !repo_abs.starts_with(old_prefix) {
@@ -657,13 +627,13 @@ pub fn (mut app App) auth_user(mut ctx Context, user User, ip string) ! {
 	// on cross-site requests, mitigating CSRF. Set `secure: true` as well when
 	// deploying behind HTTPS.
 	ctx.set_cookie(
-		name:      'token'
-		value:     token
-		expires:   expire_date
-		path:      '/'
+		name: 'token'
+		value: token
+		expires: expire_date
+		path: '/'
 		http_only: true
 		same_site: .same_site_lax_mode
-		secure:    app.config.cookie_secure
+		secure: app.config.cookie_secure
 	)
 }
 

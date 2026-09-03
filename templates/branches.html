@@ -10,6 +10,13 @@
 			@include 'layout/repo_menu.html'
 
 			<h1>Branches</h1>
+			@if can_create
+				<form method="post" action="/@repo.user_name/@repo.name/branches" class="form branch-create-form">
+					<label>New branch <input type="text" name="name" placeholder="feature/name" required></label>
+					<label>Source <input type="text" name="source" value="@repo.primary_branch" required></label>
+					<button type="submit">Create branch</button>
+				</form>
+			@end
 
 			.branches {
 				@for branch in branches
@@ -28,6 +35,12 @@
 								span.clog-time {
 									updated @branch.relative()
 								}
+								@if branch.can_delete
+									<form method="post" action="/@repo.user_name/@repo.name/branches/delete" class="inline-form">
+										<input type="hidden" name="name" value="@branch.name">
+										<button type="submit" class="link-button link-button--danger">Delete</button>
+									</form>
+								@end
 							}
 						}
 					}

@@ -1,4 +1,8 @@
 .issue-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
 	margin: 20px 0 16px;
 }
 
@@ -234,6 +238,63 @@
 	background: #f6f8fa;
 }
 
+.issue-labels {
+	margin: 0 0 14px 54px;
+	padding: 10px 14px;
+	border: 1px solid #d0d7de;
+	border-radius: 6px;
+	background: #f6f8fa;
+}
+
+.issue-label-control {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+}
+
+.issue-label__remove {
+	width: auto;
+	padding: 0 4px;
+	border: 0;
+	background: transparent;
+	font-size: 18px;
+	line-height: 18px;
+	cursor: pointer;
+}
+
+.issue-labels__form,
+.label-list__form,
+.label-create-form {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 10px;
+
+	input,
+	select,
+	button {
+		width: auto;
+	}
+}
+
+.label-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-bottom: 24px;
+}
+
+.label-list__item {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 10px;
+	padding: 10px 12px;
+	border: 1px solid #d0d7de;
+	border-radius: 6px;
+}
+
 .issue-assignees__header {
 	display: flex;
 	align-items: baseline;
@@ -303,6 +364,10 @@
 
 @media (max-width: 600px) {
 	.issue-assignees {
+		margin-left: 0;
+	}
+
+	.issue-labels {
 		margin-left: 0;
 	}
 }

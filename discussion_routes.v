@@ -15,7 +15,9 @@ struct DiscussionCommentWithUser {
 }
 
 fn (app &App) can_manage_discussion(ctx Context, repo Repo, discussion Discussion) bool {
-	return ctx.logged_in && (discussion.author_id == ctx.user.id || app.can_admin_repo(ctx, repo))
+	// An author who has since lost access to a private project must not retain a
+	// mutation capability merely by remembering the discussion URL.
+	return ctx.logged_in && app.can_read_repo(ctx, repo) && (discussion.author_id == ctx.user.id || app.can_admin_repo(ctx, repo))
 }
 
 @['/:username/:repo_name/discussions']

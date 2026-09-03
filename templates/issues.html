@@ -12,6 +12,7 @@
 			<div class="issues-header">
 				<h1 class="issues-header__title">%issue_issues</h1>
 				<div class="issues-header__actions">
+					<a class="issues-header__milestones" href="/@repo.user_name/@repo.name/labels">Labels</a>
 					@if repo.milestones_enabled()
 						<a class="issues-header__milestones" href="/@repo.user_name/@repo.name/milestones">%milestones</a>
 					@end

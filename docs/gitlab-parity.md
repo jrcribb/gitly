@@ -9,9 +9,9 @@ Gitly is a lightweight forge, while GitLab is a much larger DevSecOps platform. 
 - Fork networks, personal/organization fork targets, default-branch-only forks, safe upstream synchronization, and cross-fork merge requests
 - Scheduled/manual pull and push repository mirrors over HTTPS or SSH, encrypted credentials, pinned SSH host keys, protected-branch filtering, and explicit divergence controls
 - Project roles: Reporter (read/clone), Developer (push to permitted branches), and Maintainer (project settings)
-- Protected branches with exact or wildcard rules, role-based push and merge access, deletion protection, and force-push rejection
+- Branch listing, creation, and safe deletion through the UI/API; protected branches with exact or wildcard rules, role-based push and merge access, deletion protection, and force-push rejection
 - Merge requests with discussions, line reviews, approvals, approval invalidation after new commits, merge and squash merge
-- Issues with assignees, labels, milestones, project boards, discussions, releases, activity feeds, stars, watches, and webhooks
+- Editable issues with assignees and project-label CRUD/assignment through the UI/API, plus milestones, project boards, discussions, releases, activity feeds, stars, watches, and webhooks
 - Scoped/expiring personal access tokens, sessions, TOTP, security logs, immutable GitHub OAuth identities, SQLite/PostgreSQL, and optional external CI status integration
 
 The governance and repository model follows GitLab's documented [project roles](https://docs.gitlab.com/user/permissions/), [project members](https://docs.gitlab.com/user/project/members/), [protected branches](https://docs.gitlab.com/user/project/repository/branches/protected/), [merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/), [SSH keys](https://docs.gitlab.com/user/ssh/), [deploy keys](https://docs.gitlab.com/user/project/deploy_keys/), [fork workflows](https://docs.gitlab.com/user/project/repository/forking_workflow/), and [repository mirrors](https://docs.gitlab.com/user/project/repository/mirror/).

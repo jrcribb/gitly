@@ -1,27 +1,38 @@
 module main
 
 import veb
-import regex
 
 const max_search_query_len = 100
+
+// Preserve international project and user names while preventing callers from
+// turning the search box into an unbounded SQL LIKE wildcard query.
+fn normalize_search_query(query string) string {
+	query_chars := query.runes()
+	bounded_query := if query_chars.len > max_search_query_len {
+		query_chars[..max_search_query_len]
+	} else {
+		query_chars
+	}
+	mut clean := []rune{cap: bounded_query.len}
+	for ch in bounded_query {
+		if ch < 0x20 || ch == 0x7f || ch in [`%`, `_`] {
+			clean << ` `
+		} else {
+			clean << ch
+		}
+	}
+	return clean.string().fields().join(' ')
+}
 
 @['/search']
 pub fn (mut app App) search() veb.Result {
 	query := (ctx.query['query'] or { '' }).trim_space()
 	requested_type := ctx.query['type'] or { 'repos' }
 	search_type := if requested_type in ['repos', 'users'] { requested_type } else { 'repos' }
-	sanitize_query := r'[A-Za-z0-9]+'
-	mut re := regex.regex_opt(sanitize_query) or { panic(err) }
-
-	bounded_query := if query.len > max_search_query_len {
-		query[..max_search_query_len]
-	} else {
-		query
-	}
-	valid_query := re.find_all_str(bounded_query).join(' ')
+	valid_query := normalize_search_query(query)
 
 	repos := if search_type == 'repos' && valid_query != '' {
-		app.search_public_repos(valid_query)
+		app.search_repos(valid_query, if ctx.logged_in { ctx.user.id } else { 0 })
 	} else {
 		[]Repo{}
 	}
