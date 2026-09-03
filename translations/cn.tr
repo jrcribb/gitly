@@ -27,7 +27,7 @@ email
 邮箱
 -----
 index_intro
-快速、开源的代码协作平台
+轻量级开源 Git 代码托管平台
 -----
 index_source_hosting
 源代码托管
@@ -39,7 +39,10 @@ index_ci_cd
 CI 和 CD
 -----
 index_main_features
-团队交付所需的一切
+Gitly 功能
+-----
+index_comparison_title
+Gitly 对比
 -----
 index_feature_light_fast
 轻量快速

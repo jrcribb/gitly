@@ -27,7 +27,7 @@ email
 メールアドレス
 -----
 index_intro
-コードのための高速なオープンソース開発基盤
+軽量なオープンソースGitフォージ
 -----
 index_source_hosting
 ソースコードホスティング
@@ -39,7 +39,10 @@ index_ci_cd
 CIとCD
 -----
 index_main_features
-チームで開発するために必要なすべて
+Gitlyの機能
+-----
+index_comparison_title
+Gitlyを比較
 -----
 index_feature_light_fast
 軽量で高速

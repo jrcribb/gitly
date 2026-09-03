@@ -27,7 +27,7 @@ email
 E-mail
 -----
 index_intro
-Uma plataforma rápida e open source para o seu código
+Uma plataforma Git leve e de código aberto
 -----
 index_source_hosting
 Hospedagem de código-fonte
@@ -39,7 +39,10 @@ index_ci_cd
 CI e CD
 -----
 index_main_features
-Tudo o que você precisa para criar em equipe
+O que o Gitly inclui
+-----
+index_comparison_title
+Compare o Gitly
 -----
 index_feature_light_fast
 Leve e rápido

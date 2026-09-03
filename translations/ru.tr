@@ -27,7 +27,7 @@ email
 Электронная почта
 -----
 index_intro
-Быстрая платформа с открытым кодом для ваших проектов
+Легковесная Git-платформа с открытым исходным кодом
 -----
 index_source_hosting
 Хостинг исходного кода
@@ -39,7 +39,10 @@ index_ci_cd
 CI и CD
 -----
 index_main_features
-Всё необходимое для совместной разработки
+Возможности Gitly
+-----
+index_comparison_title
+Сравнение Gitly
 -----
 index_feature_light_fast
 Лёгкий и быстрый

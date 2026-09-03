@@ -27,7 +27,7 @@ email
 Email
 -----
 index_intro
-A fast, open-source home for your code
+A lightweight, open-source Git forge
 -----
 index_source_hosting
 Source code hosting
@@ -39,7 +39,10 @@ index_ci_cd
 CI &amp; CD
 -----
 index_main_features
-Everything you need to ship together
+What Gitly includes
+-----
+index_comparison_title
+Compare Gitly
 -----
 index_feature_light_fast
 Light and fast
