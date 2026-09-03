@@ -380,6 +380,10 @@ fn (mut app App) store_lfs_object(repo_id int, oid string, expected_size i64, da
 		|| i64(data.len) != expected_size || sha256.sum(data).hex() != oid {
 		return error('LFS object checksum or size is invalid')
 	}
+	if !app.repo_has_lfs_object(repo_id, oid) {
+		repo := app.find_repo_by_id(repo_id) or { return error('repository not found') }
+		app.ensure_namespace_storage_quota(repo.user_name, expected_size)!
+	}
 	path := app.lfs_object_path(oid)
 	os.mkdir_all(os.dir(path))!
 	if !os.exists(path) {
@@ -464,6 +468,10 @@ fn (mut app App) run_repository_housekeeping(repo Repo) !RepoHousekeeping {
 		}
 	}
 	app.prune_unreferenced_lfs_objects() or {
+		app.finish_repository_housekeeping(repo.id, err.msg())
+		return err
+	}
+	app.prune_unreferenced_platform_blobs() or {
 		app.finish_repository_housekeeping(repo.id, err.msg())
 		return err
 	}

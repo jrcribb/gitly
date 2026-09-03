@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+	<head>@include '../layout/head.html'</head>
+	<body>
+		@include '../layout/header.html'
+		<div class="content">
+			<h1>Platform administration</h1>
+			@if ctx.form_error != ''
+				<div class="form-error">@ctx.form_error</div>
+			@end
+			@if created_secret != ''
+				<div class="form-success"><strong>Copy this SCIM token now:</strong> <code>@created_secret</code></div>
+			@end
+			<section class="settings-section"><h2>High availability and jobs</h2>
+				@for instance in instances
+					<p><strong>@instance.instance_id</strong> — last seen @instance.last_seen_at, @instance.jobs_running jobs</p>
+				@end
+				@for job in jobs
+					<p>Job #@job.id @job.kind: @job.status (@job.attempts/@job.max_attempts)</p>
+				@end
+			</section>
+			<section class="settings-section"><h2>Namespace quotas</h2>
+				@for quota in quotas
+					<p><strong>@quota.namespace</strong>: @quota.max_repositories repositories / @quota.max_storage_bytes bytes</p>
+				@end
+				<form class="settings-form" method="post" action="/admin/platform/quotas"><input name="namespace" placeholder="namespace" required><input type="number" name="max_repositories" min="0" value="0"><input type="number" name="max_storage_bytes" min="0" value="0"><button type="submit">Set quota</button></form>
+			</section>
+			<section class="settings-section"><h2>Directory and identity providers</h2>
+				@for provider in providers
+					<p><strong>@provider.kind: @provider.name</strong> @provider.base_url</p>
+					<form method="post" action="/admin/platform/providers/@provider.id/scim-token"><input type="number" name="expires_at" min="0" value="0"><button type="submit">Create SCIM token</button></form>
+				@end
+				<form class="settings-form" method="post" action="/admin/platform/providers"><select name="kind"><option>ldap</option><option>saml</option><option>scim</option></select><input name="name" placeholder="Provider name" required><input name="base_url" placeholder="Directory URL"><input name="issuer" placeholder="SAML issuer"><input name="client_id" placeholder="Client ID"><input type="password" name="secret" placeholder="Secret"><textarea name="configuration" placeholder="Attribute mapping/configuration"></textarea><button type="submit">Add provider</button></form>
+			</section>
+			<section class="settings-section"><h2>Compliance frameworks</h2>
+				@for framework in frameworks
+					<p><strong>@framework.name</strong> — @framework.description</p>
+				@end
+				<form class="settings-form" method="post" action="/admin/platform/frameworks"><input name="name" placeholder="Framework name" required><textarea name="description"></textarea><textarea name="requirements" placeholder="Requirements"></textarea><button type="submit">Create framework</button></form>
+			</section>
+			<section class="settings-section"><h2>Disaster recovery</h2>
+				@for backup in backups
+					<p>Backup #@backup.id — @backup.status, @backup.size bytes <code>@backup.checksum</code></p>
+				@end
+				<form method="post" action="/admin/platform/backups"><button type="submit">Create verified backup</button></form>
+			</section>
+		</div>
+		@include '../layout/footer.html'
+	</body>
+</html>

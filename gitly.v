@@ -124,6 +124,9 @@ fn new_app() !&App {
 	create_directory_if_not_exists(app.config.repo_storage_path)
 	create_directory_if_not_exists(app.config.archive_path)
 	create_directory_if_not_exists(app.config.avatars_path)
+	if app.config.object_storage_url == '' {
+		create_directory_if_not_exists(app.object_store_local_root())
+	}
 
 	app.handle_static('static', true)!
 	app.serve_static('/favicon.ico', 'static/assets/favicon.svg')!
@@ -579,6 +582,108 @@ fn (mut app App) create_tables() ! {
 	sql app.db {
 		create table ServiceDeskTicket
 	}!
+	sql app.db {
+		create table PlatformBlob
+	}!
+	sql app.db {
+		create table PackageArtifact
+	}!
+	sql app.db {
+		create table PackageRetentionPolicy
+	}!
+	sql app.db {
+		create table ContainerBlobLink
+	}!
+	sql app.db {
+		create table ContainerManifest
+	}!
+	sql app.db {
+		create table ContainerRetentionPolicy
+	}!
+	sql app.db {
+		create table ContainerUpload
+	}!
+	sql app.db {
+		create table DependencyProxyEntry
+	}!
+	sql app.db {
+		create table SecurityScan
+	}!
+	sql app.db {
+		create table SecurityFinding
+	}!
+	sql app.db {
+		create table SecurityPolicy
+	}!
+	sql app.db {
+		create table MergeApprovalPolicy
+	}!
+	sql app.db {
+		create table ComplianceFramework
+	}!
+	sql app.db {
+		create table RepoComplianceFramework
+	}!
+	sql app.db {
+		create table AuditEvent
+	}!
+	sql app.db {
+		create table ClusterAgent
+	}!
+	sql app.db {
+		create table FeatureFlag
+	}!
+	sql app.db {
+		create table Incident
+	}!
+	sql app.db {
+		create table IncidentNote
+	}!
+	sql app.db {
+		create table AlertIntegration
+	}!
+	sql app.db {
+		create table AlertEvent
+	}!
+	sql app.db {
+		create table TelemetryEvent
+	}!
+	sql app.db {
+		create table OnCallSchedule
+	}!
+	sql app.db {
+		create table OnCallRotation
+	}!
+	sql app.db {
+		create table NamespaceQuota
+	}!
+	sql app.db {
+		create table AbuseLimitBucket
+	}!
+	sql app.db {
+		create table PlatformJob
+	}!
+	sql app.db {
+		create table InstanceHeartbeat
+	}!
+	sql app.db {
+		create table InstanceBackup
+	}!
+	sql app.db {
+		create table DirectoryProvider
+	}!
+	sql app.db {
+		create table ExternalIdentity
+	}!
+	sql app.db {
+		create table ScimToken
+	}!
+	sql app.db {
+		create table ProjectExport
+	}!
+	sql app.db {
+		create table GroupExport
+	}!
 }
 
 fn (mut app App) migrate_tables() ! {
@@ -683,6 +788,37 @@ fn (mut app App) migrate_tables() ! {
 	app.db.exec('create unique index if not exists idx_issue_relationship on ${sql_table('IssueRelationship')} (source_issue_id, target_issue_id, relationship_type)')!
 	app.db.exec('create unique index if not exists idx_service_desk_issue on ${sql_table('ServiceDeskTicket')} (issue_id)')!
 	app.db.exec("create unique index if not exists idx_service_desk_external on ${sql_table('ServiceDeskTicket')} (repo_id, external_id) where external_id != ''")!
+	app.db.exec('create unique index if not exists idx_platform_blob_oid on ${sql_table('PlatformBlob')} (oid)')!
+	app.db.exec('create unique index if not exists idx_package_coordinate on ${sql_table('PackageArtifact')} (repo_id, package_type, name, version, file_name)')!
+	app.db.exec('create unique index if not exists idx_package_retention_repo on ${sql_table('PackageRetentionPolicy')} (repo_id)')!
+	app.db.exec('create unique index if not exists idx_container_blob_link on ${sql_table('ContainerBlobLink')} (repo_id, blob_id)')!
+	app.db.exec('create unique index if not exists idx_container_manifest_ref on ${sql_table('ContainerManifest')} (repo_id, image_name, reference)')!
+	app.db.exec('create unique index if not exists idx_container_retention_repo on ${sql_table('ContainerRetentionPolicy')} (repo_id)')!
+	app.db.exec('create unique index if not exists idx_container_upload_uuid on ${sql_table('ContainerUpload')} (uuid)')!
+	app.db.exec('create unique index if not exists idx_dependency_proxy_url on ${sql_table('DependencyProxyEntry')} (repo_id, upstream_url)')!
+	app.db.exec('create index if not exists idx_security_scan_commit on ${sql_table('SecurityScan')} (repo_id, commit_sha, scan_type, id)')!
+	app.db.exec('create unique index if not exists idx_security_finding_fingerprint on ${sql_table('SecurityFinding')} (repo_id, fingerprint)')!
+	app.db.exec('create index if not exists idx_security_policy_repo on ${sql_table('SecurityPolicy')} (repo_id, enabled)')!
+	app.db.exec('create index if not exists idx_merge_approval_policy_repo on ${sql_table('MergeApprovalPolicy')} (repo_id, enabled)')!
+	app.db.exec('create unique index if not exists idx_compliance_framework_name on ${sql_table('ComplianceFramework')} (name)')!
+	app.db.exec('create unique index if not exists idx_repo_compliance_framework on ${sql_table('RepoComplianceFramework')} (repo_id)')!
+	app.db.exec('create index if not exists idx_audit_event_scope on ${sql_table('AuditEvent')} (scope_type, scope_id, id)')!
+	app.db.exec('create unique index if not exists idx_cluster_agent_token on ${sql_table('ClusterAgent')} (token_hash)')!
+	app.db.exec('create unique index if not exists idx_feature_flag_name on ${sql_table('FeatureFlag')} (repo_id, name)')!
+	app.db.exec('create index if not exists idx_incident_repo_status on ${sql_table('Incident')} (repo_id, status, id)')!
+	app.db.exec('create unique index if not exists idx_alert_integration_token on ${sql_table('AlertIntegration')} (token_hash)')!
+	app.db.exec('create unique index if not exists idx_alert_event_fingerprint on ${sql_table('AlertEvent')} (integration_id, fingerprint)')!
+	app.db.exec('create index if not exists idx_telemetry_repo_kind on ${sql_table('TelemetryEvent')} (repo_id, kind, created_at)')!
+	app.db.exec('create unique index if not exists idx_on_call_rotation_user on ${sql_table('OnCallRotation')} (schedule_id, user_id)')!
+	app.db.exec('create unique index if not exists idx_namespace_quota_name on ${sql_table('NamespaceQuota')} (namespace)')!
+	app.db.exec('create unique index if not exists idx_abuse_limit_bucket on ${sql_table('AbuseLimitBucket')} (action, key_hash)')!
+	app.db.exec('create index if not exists idx_platform_job_claim on ${sql_table('PlatformJob')} (queue, status, run_after, priority)')!
+	app.db.exec('create unique index if not exists idx_instance_heartbeat_id on ${sql_table('InstanceHeartbeat')} (instance_id)')!
+	app.db.exec('create unique index if not exists idx_directory_provider_name on ${sql_table('DirectoryProvider')} (name)')!
+	app.db.exec('create unique index if not exists idx_external_identity_uid on ${sql_table('ExternalIdentity')} (provider_id, external_uid)')!
+	app.db.exec('create unique index if not exists idx_scim_token_hash on ${sql_table('ScimToken')} (token_hash)')!
+	app.db.exec('create index if not exists idx_project_export_repo on ${sql_table('ProjectExport')} (repo_id, id)')!
+	app.db.exec('create index if not exists idx_group_export_org on ${sql_table('GroupExport')} (org_id, id)')!
 	app.backfill_scoped_labels()!
 	app.backfill_org_display_names()!
 	app.backfill_bootstrap_administrator()!

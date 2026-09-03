@@ -49,6 +49,7 @@ fn main() {
 
 	spawn run_mirror_scheduler(app.config)
 	spawn run_housekeeping_scheduler(app.config)
+	spawn run_platform_worker(app.config)
 	app.use(handler: app.before_request)
 	app.route_use('/:username/:repo_name/pull/:id/files',
 		handler: minify_pr_files_html

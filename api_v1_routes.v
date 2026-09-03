@@ -156,7 +156,9 @@ fn (mut app App) pr_to_api(pr PullRequest) ApiPullView {
 	}
 
 	repo := app.find_repo_by_id(pr.repo_id) or { Repo{} }
-	approval_count := app.pull_request_approval_count(pr.id)
+	head_oid := app.pull_request_head_oid(pr) or { '' }
+	approval_count := app.find_pull_request_approvals_for_head(pr, head_oid).len
+	required := app.required_approvals_for_branch(repo, pr.base_branch)
 	return ApiPullView{
 		id: pr.id
 		repo_id: pr.repo_id
@@ -171,8 +173,8 @@ fn (mut app App) pr_to_api(pr PullRequest) ApiPullView {
 		created_at: pr.created_at
 		merged_at: pr.merged_at
 		approvals: approval_count
-		required_approvals: repo.required_approvals
-		approvals_satisfied: approval_count >= repo.required_approvals
+		required_approvals: required
+		approvals_satisfied: head_oid != '' && app.approval_policies_satisfied_at_head(pr, repo, head_oid)
 	}
 }
 
@@ -1268,7 +1270,9 @@ pub fn (mut app App) api_v1_pull_approvals(mut ctx Context, username string, rep
 	if pr.repo_id != repo.id {
 		return ctx.api_not_found()
 	}
-	approvals := app.find_pull_request_approvals(pr.id)
+	head_oid := app.pull_request_head_oid(pr) or { '' }
+	approvals := app.find_pull_request_approvals_for_head(pr, head_oid)
+	required := app.required_approvals_for_branch(repo, pr.base_branch)
 	mut approved_by := []ApiApprovalView{cap: approvals.len}
 	for item in approvals {
 		approved_by << ApiApprovalView{
@@ -1279,8 +1283,8 @@ pub fn (mut app App) api_v1_pull_approvals(mut ctx Context, username string, rep
 	}
 	return ctx.json(ApiApprovalStatusView{
 		count: approvals.len
-		required: repo.required_approvals
-		satisfied: approvals.len >= repo.required_approvals
+		required: required
+		satisfied: app.pull_request_approvals_satisfied(pr, repo)
 		approved_by: approved_by
 	})
 }

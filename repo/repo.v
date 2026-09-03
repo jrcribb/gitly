@@ -521,6 +521,9 @@ fn (mut app App) delete_repository(id int, path string, name string) ! {
 		return error('repository changed while deletion was requested')
 	}
 	locked_repo := locked_repos[0]
+	container_uploads := sql tx {
+		select from ContainerUpload where repo_id == repo_id
+	}!
 	sql tx {
 		delete from RepoTransfer where repo_id == repo_id
 	}!
@@ -570,6 +573,90 @@ fn (mut app App) delete_repository(id int, path string, name string) ! {
 		delete from ServiceDeskTicket where repo_id == repo_id
 	}!
 	sql tx {
+		delete from PackageArtifact where repo_id == repo_id
+	}!
+	sql tx {
+		delete from PackageRetentionPolicy where repo_id == repo_id
+	}!
+	sql tx {
+		delete from ContainerBlobLink where repo_id == repo_id
+	}!
+	sql tx {
+		delete from ContainerManifest where repo_id == repo_id
+	}!
+	sql tx {
+		delete from ContainerRetentionPolicy where repo_id == repo_id
+	}!
+	sql tx {
+		delete from ContainerUpload where repo_id == repo_id
+	}!
+	sql tx {
+		delete from DependencyProxyEntry where repo_id == repo_id
+	}!
+	sql tx {
+		delete from SecurityFinding where repo_id == repo_id
+	}!
+	sql tx {
+		delete from SecurityScan where repo_id == repo_id
+	}!
+	sql tx {
+		delete from SecurityPolicy where repo_id == repo_id
+	}!
+	sql tx {
+		delete from MergeApprovalPolicy where repo_id == repo_id
+	}!
+	sql tx {
+		delete from RepoComplianceFramework where repo_id == repo_id
+	}!
+	sql tx {
+		delete from ClusterAgent where repo_id == repo_id
+	}!
+	sql tx {
+		delete from FeatureFlag where repo_id == repo_id
+	}!
+	incidents := sql tx {
+		select from Incident where repo_id == repo_id
+	}!
+	for incident in incidents {
+		incident_id := incident.id
+		sql tx {
+			delete from IncidentNote where incident_id == incident_id
+		}!
+	}
+	sql tx {
+		delete from Incident where repo_id == repo_id
+	}!
+	integrations := sql tx {
+		select from AlertIntegration where repo_id == repo_id
+	}!
+	for integration in integrations {
+		integration_id := integration.id
+		sql tx {
+			delete from AlertEvent where integration_id == integration_id
+		}!
+	}
+	sql tx {
+		delete from AlertIntegration where repo_id == repo_id
+	}!
+	sql tx {
+		delete from TelemetryEvent where repo_id == repo_id
+	}!
+	schedules := sql tx {
+		select from OnCallSchedule where repo_id == repo_id
+	}!
+	for schedule in schedules {
+		schedule_id := schedule.id
+		sql tx {
+			delete from OnCallRotation where schedule_id == schedule_id
+		}!
+	}
+	sql tx {
+		delete from OnCallSchedule where repo_id == repo_id
+	}!
+	sql tx {
+		delete from ProjectExport where repo_id == repo_id
+	}!
+	sql tx {
 		delete from ProtectedBranch where repo_id == repo_id
 	}!
 	sql tx {
@@ -591,6 +678,11 @@ fn (mut app App) delete_repository(id int, path string, name string) ! {
 	// Authorized-keys generation and filesystem removal are side effects, so run
 	// them only after the database cleanup is durably committed.
 	app.sync_authorized_keys() or { app.warn('Could not update authorized_keys: ${err}') }
+	for upload in container_uploads {
+		app.object_store_delete(upload.storage_key) or {
+			app.warn('Could not remove abandoned container upload ${upload.uuid}: ${err}')
+		}
+	}
 	app.delete_repo_folder(locked_repo.git_dir)
 	app.info('Removed repo folder (${repo_id}, ${locked_repo.name})')
 }

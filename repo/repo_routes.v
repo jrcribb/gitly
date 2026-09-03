@@ -240,8 +240,7 @@ pub fn (mut app App) handle_update_repo_features(username string, repo_name stri
 	disable_projects := 'projects_enabled' !in ctx.form
 	disable_milestones := 'milestones_enabled' !in ctx.form
 
-	app.update_repo_features(repo.id, disable_discussions, disable_projects, disable_milestones,
-		repo.disable_wiki) or { app.info(err.str()) }
+	app.update_repo_features(repo.id, disable_discussions, disable_projects, disable_milestones, repo.disable_wiki) or { app.info(err.str()) }
 
 	return ctx.redirect('/${username}/${repo_name}/settings')
 }
@@ -425,6 +424,10 @@ pub fn (mut app App) handle_new_repo(mut ctx Context, name string, clone_url str
 		ctx.error('A repository with the name "${name}" already exists')
 		return app.new(mut ctx)
 	}
+	app.ensure_namespace_repository_quota(owner_name) or {
+		ctx.error(err.msg())
+		return app.new(mut ctx)
+	}
 	if name.contains(' ') {
 		ctx.error('Repository name cannot contain spaces')
 		return app.new(mut ctx)
@@ -453,15 +456,15 @@ pub fn (mut app App) handle_new_repo(mut ctx Context, name string, clone_url str
 	}
 	repo_path := os.join_path(owner_dir, name)
 	mut new_repo := &Repo{
-		name:           name
-		description:    description
-		git_dir:        repo_path
-		user_id:        ctx.user.id
+		name: name
+		description: description
+		git_dir: repo_path
+		user_id: ctx.user.id
 		primary_branch: default_primary_branch
-		user_name:      owner_name
-		clone_url:      valid_clone_url
-		is_public:      is_public
-		created_at:     int(time.now().unix())
+		user_name: owner_name
+		clone_url: valid_clone_url
+		is_public: is_public
+		created_at: int(time.now().unix())
 	}
 	import_issues := ctx.form['import_issues'] == '1'
 	import_prs := ctx.form['import_prs'] == '1'
@@ -504,15 +507,14 @@ pub fn (mut app App) handle_new_repo(mut ctx Context, name string, clone_url str
 		mut clone_job_repo := new_repo2
 		clone_job_repo.clone_url = valid_clone_url
 		clone_job_repo.status = .cloning
-		enforce_clone_size_limit := should_enforce_clone_size_limit(ctx.is_admin(),
-			clone_size_limit_flag_enabled())
-		spawn clone_repo(clone_job_repo, app.config, import_issues, import_prs, ctx.user.id,
-			enforce_clone_size_limit)
+		enforce_clone_size_limit := should_enforce_clone_size_limit(ctx.is_admin(), clone_size_limit_flag_enabled())
+		spawn clone_repo(clone_job_repo, app.config, import_issues, import_prs, ctx.user.id, enforce_clone_size_limit)
 	}
 	repo_id := new_repo2.id
 	// $dbg;
 	// primary_branch := git.get_repository_primary_branch(repo_path)
 	primary_branch := new_repo2.primary_branch
+
 	// app.debug("new_repo2: ${new_repo2}")
 
 	app.update_repo_primary_branch(repo_id, primary_branch) or {
@@ -542,7 +544,7 @@ pub fn (mut app App) handle_new_repo(mut ctx Context, name string, clone_url str
 fn bg_fetch_files_info(repo_ Repo, branch string, path string, conf config.Config) {
 	mut repo := repo_
 	mut app := &App{
-		db:     connect_db(conf) or {
+		db: connect_db(conf) or {
 			eprintln('cannot open ${db_backend_name()} db connection for bg_fetch thread: ${err}')
 			return
 		}
@@ -573,7 +575,7 @@ fn clone_repo(new_repo Repo, conf config.Config, import_issues bool, import_prs 
 	// Use a dedicated DB connection for the clone thread to avoid
 	// sharing a connection across threads.
 	mut app := &App{
-		db:     connect_db(conf) or {
+		db: connect_db(conf) or {
 			eprintln('cannot open ${db_backend_name()} db connection for clone thread: ${err}')
 			return
 		}
@@ -581,8 +583,7 @@ fn clone_repo(new_repo Repo, conf config.Config, import_issues bool, import_prs 
 	}
 	if !is_safe_mirror_endpoint(cloned_repo.clone_url, app.config.mirror_allowed_hosts) {
 		app.set_repo_status(cloned_repo.id, .clone_failed) or {}
-		append_clone_progress(cloned_repo.clone_progress_path(),
-			'Clone blocked: the remote no longer resolves to a public address.')
+		append_clone_progress(cloned_repo.clone_progress_path(), 'Clone blocked: the remote no longer resolves to a public address.')
 		app.db.close() or {}
 		return
 	}
@@ -615,11 +616,9 @@ fn clone_repo(new_repo Repo, conf config.Config, import_issues bool, import_prs 
 				eprintln('[github-pr] FAILED: ${err}')
 			}
 		}
-		spawn bg_import_github_repo_info(cloned_repo.id, cloned_repo.clone_url,
-			cloned_repo.description, conf)
+		spawn bg_import_github_repo_info(cloned_repo.id, cloned_repo.clone_url, cloned_repo.description, conf)
 		if import_issues {
-			spawn bg_import_github_issues(cloned_repo.id, cloned_repo.clone_url, owner_user_id,
-				conf)
+			spawn bg_import_github_issues(cloned_repo.id, cloned_repo.clone_url, owner_user_id, conf)
 		}
 	}
 	// Mark repo as done after clone-time imports that affect first page views.
@@ -637,7 +636,7 @@ fn clone_repo(new_repo Repo, conf config.Config, import_issues bool, import_prs 
 fn bg_import_github_repo_info(repo_id int, clone_url string, existing_description string, conf config.Config) {
 	eprintln('[github-info] spawned thread for repo_id=${repo_id}')
 	mut app := &App{
-		db:     connect_db(conf) or {
+		db: connect_db(conf) or {
 			eprintln('[github-info] cannot open db connection: ${err}')
 			return
 		}
@@ -662,7 +661,7 @@ fn bg_import_github_repo_info(repo_id int, clone_url string, existing_descriptio
 fn bg_import_github_issues(repo_id int, clone_url string, owner_user_id int, conf config.Config) {
 	eprintln('[github-import] spawned thread for repo_id=${repo_id}')
 	mut app := &App{
-		db:     connect_db(conf) or {
+		db: connect_db(conf) or {
 			eprintln('[github-import] cannot open db connection for import thread: ${err}')
 			return
 		}
@@ -976,14 +975,13 @@ pub fn (mut app App) handle_api_repo_star(mut ctx Context, repo_id_str string) v
 
 	user_id := user.id
 	app.toggle_repo_star(repo_id, user_id) or {
-		return ctx.api_error_response(500, 'Internal Server Error',
-			'There was an error while starring the repo')
+		return ctx.api_error_response(500, 'Internal Server Error', 'There was an error while starring the repo')
 	}
 	is_repo_starred := app.check_repo_starred(repo_id, user_id)
 
 	return ctx.json(api.ApiSuccessResponse[bool]{
 		success: true
-		result:  is_repo_starred
+		result: is_repo_starred
 	})
 }
 
@@ -998,14 +996,13 @@ pub fn (mut app App) handle_api_repo_watch(mut ctx Context, repo_id_str string) 
 
 	user_id := user.id
 	app.toggle_repo_watcher_status(repo_id, user_id) or {
-		return ctx.api_error_response(500, 'Internal Server Error',
-			'There was an error while toggling to watch')
+		return ctx.api_error_response(500, 'Internal Server Error', 'There was an error while toggling to watch')
 	}
 	is_watching := app.check_repo_watcher_status(repo_id, user_id)
 
 	return ctx.json(api.ApiSuccessResponse[bool]{
 		success: true
-		result:  is_watching
+		result: is_watching
 	})
 }
 
@@ -1034,17 +1031,17 @@ pub fn (mut app App) handle_api_repo_files(mut ctx Context, repo_id_str string) 
 	mut result := []FileInfo{}
 	for item in items {
 		result << FileInfo{
-			name:      item.name
-			last_msg:  item.last_msg
+			name: item.name
+			last_msg: item.last_msg
 			last_hash: item.last_hash
 			last_time: item.pretty_last_time()
-			size:      item.pretty_tree_size()
+			size: item.pretty_tree_size()
 		}
 	}
 
 	return ctx.json(api.ApiSuccessResponse[[]FileInfo]{
 		success: true
-		result:  result
+		result: result
 	})
 }
 

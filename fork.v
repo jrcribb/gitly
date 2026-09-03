@@ -216,6 +216,7 @@ fn (mut app App) create_fork(source Repo, owner_name string, owner_user_id int, 
 	if app.namespace_has_fork_in_network(source.id, owner_name) {
 		return error('The destination namespace already contains a repository in this fork network')
 	}
+	app.ensure_namespace_repository_quota(owner_name)!
 	owner_dir := os.join_path(app.config.repo_storage_path, owner_name)
 	os.mkdir_all(owner_dir)!
 	target_path := os.join_path(owner_dir, name)

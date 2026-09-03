@@ -400,7 +400,9 @@ pub fn (mut app App) pull_request(mut ctx Context, username string, repo_name st
 	current_head_oid := app.pull_request_head_oid(pr) or { '' }
 	approvals := app.find_pull_request_approvals_for_head(pr, current_head_oid)
 	approval_count := approvals.len
-	approvals_satisfied := current_head_oid != '' && approval_count >= repo.required_approvals
+	required_approvals := app.required_approvals_for_branch(repo, pr.base_branch)
+	approvals_satisfied := current_head_oid != ''
+		&& app.approval_policies_satisfied_at_head(pr, repo, current_head_oid)
 	has_approved := ctx.logged_in
 		&& app.user_approved_pull_request_at_head(pr.id, ctx.user.id, current_head_oid)
 	can_approve := ctx.logged_in && pr.is_open() && pr.author_id != ctx.user.id
@@ -728,6 +730,10 @@ pub fn (mut app App) handle_merge_pr(mut ctx Context, username string, repo_name
 		ctx.error('Merge request approvals are still required')
 		return ctx.redirect('/${username}/${repo_name}/pull/${id}')
 	}
+	app.enforce_security_gate(repo, pr.base_branch, head_oid) or {
+		ctx.error('Merge blocked by security policy: ${err}')
+		return ctx.redirect('/${username}/${repo_name}/pull/${id}')
+	}
 	if repo.require_signed_commits {
 		base_oid := git_rev_parse(repo.git_dir, pr.base_branch) or {
 			ctx.error('Merge failed: could not resolve the target branch')
@@ -783,6 +789,10 @@ pub fn (mut app App) handle_squash_pr(mut ctx Context, username string, repo_nam
 	}
 	if !app.pull_request_approvals_satisfied_at_head(pr, repo, head_oid) {
 		ctx.error('Merge request approvals are still required')
+		return ctx.redirect('/${username}/${repo_name}/pull/${id}')
+	}
+	app.enforce_security_gate(repo, pr.base_branch, head_oid) or {
+		ctx.error('Squash merge blocked by security policy: ${err}')
 		return ctx.redirect('/${username}/${repo_name}/pull/${id}')
 	}
 	if repo.require_signed_commits {

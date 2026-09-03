@@ -16,9 +16,12 @@ It provides:
 - Scheduled/manual pull and push mirrors over HTTPS or SSH, with encrypted credentials
 - Deploy tokens, trusted SSH commit signatures, signed-commit policies, protected tags and releases, snippets, Git LFS, partial clone, and scheduled/manual repository housekeeping
 - Nested groups with inherited planning access, epics and roadmaps, iterations, issue tasks/time/relationships, scoped labels, service desk ingestion, and filtered boards with WIP limits
+- Package and OCI container registries, dependency proxying, provenance, retention, and content-addressed local/HTTP object storage
+- Security-report ingestion, vulnerability management, compliance and merge policies, audit export, cluster agents, feature flags, incidents, alerting, telemetry, and on-call schedules
+- Background queues, HA health/heartbeats, verified backups, quotas, abuse limits, encrypted directory-provider configuration, SCIM provisioning, and group/project import-export
 - SQLite or PostgreSQL storage and compiled-in templates
 
-Gitly is beta software. It is a lightweight forge rather than a complete GitLab distribution; package registries, enterprise identity, security scanning, large-scale operations, and a repository wiki remain outside the implemented foundation.
+Gitly is beta software. It is a lightweight forge rather than a complete GitLab distribution. It supplies an integrated platform control plane while scanner engines, native LDAP/SAML protocol handling, managed observability backends, multi-region orchestration, and the separately maintained CI runner remain external services.
 
 The current GitLab capability comparison and the remaining implementation sequence are documented in [docs/gitlab-parity.md](docs/gitlab-parity.md). Gitly is intentionally described as a lightweight alternative, not as complete GitLab parity while major platform areas remain outstanding.
 
@@ -63,6 +66,8 @@ Review `config.json` before deployment:
 - Set `ci_secret` to a long random value if CI is enabled, and configure the same secret in the CI service. CI callbacks are rejected when this secret is empty. `GITLY_CI_SECRET` can override the Gitly-side value.
 - Gitly derives the CI status callback from `hostname` and `cookie_secure`. If the CI service cannot reach that URL, set `ci_callback_url` (or `GITLY_CI_CALLBACK_URL`) to the complete externally reachable callback endpoint, for example `https://git.example.com/api/v1/ci/status`.
 - Set `GITLY_STORAGE_SECRET` to a long random value before saving credentialed repository mirrors. Mirror passwords, access tokens, and SSH private keys fail closed when encryption is not configured.
+- Binary artifacts default to a content-addressed store under the repository root. Set `GITLY_OBJECT_STORAGE_PATH` for a separate local volume, or `GITLY_OBJECT_STORAGE_URL` and `GITLY_OBJECT_STORAGE_TOKEN` for the authenticated HTTP adapter. Configure `GITLY_MAX_PACKAGE_SIZE_BYTES` and an explicit `GITLY_DEPENDENCY_PROXY_ALLOWED_HOSTS` allowlist for registry traffic.
+- Give each web/worker process a stable `GITLY_INSTANCE_ID` when operating multiple instances. All instances must share the database, repository volume, object store, storage secret, and HTTPS/session configuration.
 - Keep the CI service and database on trusted networks and terminate HTTPS at Gitly or a reverse proxy.
 - Treat CI jobs as untrusted code. Run the separate `gitly_ci` service on an isolated runner host/VM (or an equivalent container sandbox) with a minimal allowlisted environment and no access to Gitly's database credentials, storage secret, repository storage, or host filesystem beyond its disposable workspace. Do not co-locate the current shell runner with the Gitly service in production.
 
@@ -81,6 +86,8 @@ export GITLY_SSH_AUTHORIZED_KEYS_PATH=/home/git/.ssh/authorized_keys
 The Gitly process must be able to atomically update that file. It preserves entries outside its managed block and installs restricted forced commands for active authentication and deploy keys. See [docs/ssh.md](docs/ssh.md) for the OpenSSH setup and security model.
 
 Fork and mirror behavior, including private-source visibility, divergence handling, credential encryption, SSH host-key pinning, and internal-host allowlisting, is documented in [docs/repository-forks-mirrors.md](docs/repository-forks-mirrors.md).
+
+Package delivery, security ingestion, operational APIs, backups, identity provisioning, and scaling configuration are documented in [docs/platform.md](docs/platform.md).
 
 ## Tests
 

@@ -98,8 +98,8 @@
 			@if ctx.logged_in
 				<section class="pr-approval-box">
 					<div>
-						<strong>@approval_count / @repo.required_approvals approvals</strong>
-						@if repo.required_approvals == 0
+						<strong>@approval_count / @required_approvals approvals</strong>
+						@if required_approvals == 0
 							<span>No approvals are required.</span>
 						@else if approvals_satisfied
 							<span>Approval requirement satisfied.</span>
@@ -133,7 +133,7 @@
 						</form>
 					@end
 					@if pr.is_open() && can_merge_branch && !approvals_satisfied
-						<span class="pr-merge-blocked">Merge blocked until @repo.required_approvals approvals are recorded.</span>
+						<span class="pr-merge-blocked">Merge blocked until @required_approvals policy-compliant approvals are recorded.</span>
 					@end
 					@if can_close
 						<form method='post' action='/@repo.user_name/@repo.name/pull/@pr.id/close' class='pr-action-form'>

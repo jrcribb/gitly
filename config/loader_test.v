@@ -4,8 +4,7 @@ import os
 
 fn test_read_config_uses_database_defaults() {
 	path := os.join_path(os.temp_dir(), 'gitly_config_defaults_${os.getpid()}.json')
-	os.write_file(path,
-		'{"repo_storage_path":"./repos","archive_path":"./archives","avatars_path":"./avatars","hostname":"gitly.test","ci_service_url":"http://localhost:8081"}')!
+	os.write_file(path, '{"repo_storage_path":"./repos","archive_path":"./archives","avatars_path":"./avatars","hostname":"gitly.test","ci_service_url":"http://localhost:8081"}')!
 	defer {
 		os.rm(path) or {}
 	}
@@ -22,12 +21,15 @@ fn test_read_config_uses_database_defaults() {
 	assert conf.ci_secret == ''
 	assert conf.ci_callback_url == ''
 	assert !conf.cookie_secure
+	assert conf.object_storage_path == ''
+	assert conf.object_storage_url == ''
+	assert conf.max_package_size_bytes == 524288000
+	assert conf.dependency_proxy_allowed_hosts == []
 }
 
 fn test_read_config_allows_ci_callback_url_override() {
 	path := os.join_path(os.temp_dir(), 'gitly_config_ci_callback_${os.getpid()}.json')
-	os.write_file(path,
-		'{"repo_storage_path":"./repos","archive_path":"./archives","avatars_path":"./avatars","hostname":"gitly.test","ci_service_url":"http://localhost:8081","ci_callback_url":"https://configured.test/api/v1/ci/status"}')!
+	os.write_file(path, '{"repo_storage_path":"./repos","archive_path":"./archives","avatars_path":"./avatars","hostname":"gitly.test","ci_service_url":"http://localhost:8081","ci_callback_url":"https://configured.test/api/v1/ci/status"}')!
 	defer {
 		os.rm(path) or {}
 		os.unsetenv('GITLY_CI_CALLBACK_URL')
@@ -39,8 +41,7 @@ fn test_read_config_allows_ci_callback_url_override() {
 
 fn test_read_config_allows_runtime_path_overrides() {
 	path := os.join_path(os.temp_dir(), 'gitly_config_env_${os.getpid()}.json')
-	os.write_file(path,
-		'{"repo_storage_path":"./repos","archive_path":"./archives","avatars_path":"./avatars","hostname":"gitly.test","ci_service_url":"http://localhost:8081"}')!
+	os.write_file(path, '{"repo_storage_path":"./repos","archive_path":"./archives","avatars_path":"./avatars","hostname":"gitly.test","ci_service_url":"http://localhost:8081"}')!
 	defer {
 		os.rm(path) or {}
 		os.unsetenv('GITLY_REPO_STORAGE_PATH')
@@ -58,8 +59,7 @@ fn test_read_config_allows_runtime_path_overrides() {
 
 fn test_read_config_allows_ssh_and_mirror_runtime_overrides() {
 	path := os.join_path(os.temp_dir(), 'gitly_config_transport_${os.getpid()}.json')
-	os.write_file(path,
-		'{"repo_storage_path":"./repos","archive_path":"./archives","avatars_path":"./avatars","hostname":"gitly.test","ci_service_url":"","mirror_allowed_hosts":[]}')!
+	os.write_file(path, '{"repo_storage_path":"./repos","archive_path":"./archives","avatars_path":"./avatars","hostname":"gitly.test","ci_service_url":"","mirror_allowed_hosts":[]}')!
 	defer {
 		os.rm(path) or {}
 		for key in ['GITLY_STORAGE_SECRET', 'GITLY_SSH_ENABLED', 'GITLY_SSH_HOSTNAME',
@@ -83,4 +83,30 @@ fn test_read_config_allows_ssh_and_mirror_runtime_overrides() {
 	assert conf.ssh_user == 'forge'
 	assert conf.ssh_authorized_keys_path == '/tmp/gitly-authorized-keys'
 	assert conf.mirror_allowed_hosts == ['git.internal.test', 'mirror.example']
+}
+
+fn test_read_config_allows_platform_runtime_overrides() {
+	path := os.join_path(os.temp_dir(), 'gitly_config_platform_${os.getpid()}.json')
+	os.write_file(path, '{"repo_storage_path":"./repos","archive_path":"./archives","avatars_path":"./avatars","hostname":"gitly.test"}')!
+	defer {
+		os.rm(path) or {}
+		for key in ['GITLY_OBJECT_STORAGE_PATH', 'GITLY_OBJECT_STORAGE_URL',
+			'GITLY_OBJECT_STORAGE_TOKEN', 'GITLY_MAX_PACKAGE_SIZE_BYTES',
+			'GITLY_DEPENDENCY_PROXY_ALLOWED_HOSTS', 'GITLY_INSTANCE_ID'] {
+			os.unsetenv(key)
+		}
+	}
+	os.setenv('GITLY_OBJECT_STORAGE_PATH', '/var/lib/gitly/objects', true)
+	os.setenv('GITLY_OBJECT_STORAGE_URL', 'https://objects.example.test/gitly', true)
+	os.setenv('GITLY_OBJECT_STORAGE_TOKEN', 'object-token', true)
+	os.setenv('GITLY_MAX_PACKAGE_SIZE_BYTES', '1048576', true)
+	os.setenv('GITLY_DEPENDENCY_PROXY_ALLOWED_HOSTS', 'registry.npmjs.org, Pypi.org ', true)
+	os.setenv('GITLY_INSTANCE_ID', 'web-1', true)
+	conf := read_config(path)!
+	assert conf.object_storage_path == '/var/lib/gitly/objects'
+	assert conf.object_storage_url == 'https://objects.example.test/gitly'
+	assert conf.object_storage_token == 'object-token'
+	assert conf.max_package_size_bytes == 1048576
+	assert conf.dependency_proxy_allowed_hosts == ['registry.npmjs.org', 'pypi.org']
+	assert conf.instance_id == 'web-1'
 }

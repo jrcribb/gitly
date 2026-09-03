@@ -161,33 +161,28 @@ fn (rc &PrReviewComment) relative() string {
 }
 
 fn (mut app App) add_pull_request_with_created_at(repo_id int, author_id int, title string, description string, head string, base string, created_at int) !int {
-	return app.add_pull_request_from_repo_with_created_at(repo_id, 0, author_id, title,
-		description, head, base, created_at)
+	return app.add_pull_request_from_repo_with_created_at(repo_id, 0, author_id, title, description, head, base, created_at)
 }
 
 fn (mut app App) add_pull_request_from_repo_with_created_at(repo_id int, head_repo_id int,
 	author_id int, title string, description string, head string, base string, created_at int) !int {
 	return db_insert_returning_id(mut app.db, 'PullRequest', ['repo_id', 'head_repo_id', 'author_id',
-		'title', 'description', 'head_branch', 'base_branch', 'status', 'comments_count',
-		'created_at', 'merged_at', 'merge_commit_hash'], [repo_id.str(),
-		head_repo_id.str(), author_id.str(), title, description, head, base, int(PrStatus.open).str(),
-		'0', created_at.str(), '0', ''])
+		'title', 'description', 'head_branch', 'base_branch', 'status', 'comments_count', 'created_at',
+		'merged_at', 'merge_commit_hash'], [repo_id.str(), head_repo_id.str(), author_id.str(),
+		title, description, head, base, int(PrStatus.open).str(), '0', created_at.str(), '0', ''])
 }
 
 fn (mut app App) add_pull_request_from_repo(repo_id int, head_repo_id int, author_id int,
 	title string, description string, head string, base string) !int {
-	return app.add_pull_request_from_repo_with_created_at(repo_id, head_repo_id, author_id, title,
-		description, head, base, int(time.now().unix()))
+	return app.add_pull_request_from_repo_with_created_at(repo_id, head_repo_id, author_id, title, description, head, base, int(time.now().unix()))
 }
 
 fn (mut app App) add_pull_request(repo_id int, author_id int, title string, description string, head string, base string) !int {
-	return app.add_pull_request_with_created_at(repo_id, author_id, title, description, head, base,
-		int(time.now().unix()))
+	return app.add_pull_request_with_created_at(repo_id, author_id, title, description, head, base, int(time.now().unix()))
 }
 
 fn (mut app App) add_imported_pull_request(repo_id int, author_id int, title string, description string, head string, base string, created_at int) !int {
-	return app.add_pull_request_with_created_at(repo_id, author_id, title, description, head, base,
-		created_at)
+	return app.add_pull_request_with_created_at(repo_id, author_id, title, description, head, base, created_at)
 }
 
 fn (mut app App) pull_request_exists_for_head(repo_id int, head string) bool {
@@ -278,10 +273,10 @@ fn (mut app App) decrement_repo_open_prs(repo_id int) ! {
 
 fn (mut app App) add_pr_comment(pr_id int, author_id int, text string) ! {
 	comment := PrComment{
-		pr_id:      pr_id
-		author_id:  author_id
+		pr_id: pr_id
+		author_id: author_id
 		created_at: int(time.now().unix())
-		text:       text
+		text: text
 	}
 	sql app.db {
 		insert comment into PrComment
@@ -296,8 +291,8 @@ fn (mut app App) get_pr_comments(pr_id int) []PrComment {
 
 fn (mut app App) add_pr_review(pr_id int, author_id int, state int, body string) !int {
 	return db_insert_returning_id(mut app.db, 'PrReview', ['pr_id', 'author_id', 'state', 'body',
-		'created_at'],
-		[pr_id.str(), author_id.str(), state.str(), body, int(time.now().unix()).str()])
+		'created_at'], [pr_id.str(), author_id.str(), state.str(), body,
+		int(time.now().unix()).str()])
 }
 
 fn (mut app App) get_pr_reviews(pr_id int) []PrReview {
@@ -331,10 +326,10 @@ fn (mut app App) approve_pull_request(pr_id int, user_id int) ! {
 		return
 	}
 	approval := PrApproval{
-		pr_id:             pr_id
-		user_id:           user_id
+		pr_id: pr_id
+		user_id: user_id
 		approved_head_oid: head_oid
-		created_at:        now
+		created_at: now
 	}
 	sql app.db {
 		insert approval into PrApproval
@@ -394,7 +389,7 @@ fn (mut app App) find_pull_request_approvals_for_head(pr PullRequest, head_oid s
 		}
 		result << PrApprovalView{
 			approval: approval
-			user:     user
+			user: user
 		}
 	}
 	return result
@@ -406,7 +401,7 @@ fn (mut app App) pull_request_approvals_satisfied(pr PullRequest, repo Repo) boo
 }
 
 fn (mut app App) pull_request_approvals_satisfied_at_head(pr PullRequest, repo Repo, head_oid string) bool {
-	return app.find_pull_request_approvals_for_head(pr, head_oid).len >= repo.required_approvals
+	return app.approval_policies_satisfied_at_head(pr, repo, head_oid)
 }
 
 fn (app &App) pull_request_head_oid(pr PullRequest) !string {
@@ -453,14 +448,14 @@ fn (mut app App) clear_open_pr_approvals_for_head(repo_id int, branch string) ! 
 
 fn (mut app App) add_pr_review_comment(pr_id int, author_id int, review_id int, file_path string, line_number int, side string, text string) ! {
 	c := PrReviewComment{
-		pr_id:       pr_id
-		author_id:   author_id
-		review_id:   review_id
-		file_path:   file_path
+		pr_id: pr_id
+		author_id: author_id
+		review_id: review_id
+		file_path: file_path
 		line_number: line_number
-		side:        side
-		text:        text
-		created_at:  int(time.now().unix())
+		side: side
+		text: text
+		created_at: int(time.now().unix())
 	}
 	sql app.db {
 		insert c into PrReviewComment

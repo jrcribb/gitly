@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+	<head>@include '../layout/head.html'</head>
+	<body>
+		@include '../layout/header.html'
+		<div class="content">
+			@include '../layout/repo_menu.html'
+			<h1>DevSecOps platform</h1>
+			@if ctx.form_error != ''
+				<div class="form-error">@ctx.form_error</div>
+			@end
+			@if created_secret != ''
+				<div class="form-success"><strong>Copy this integration secret now:</strong> <code>@created_secret</code></div>
+			@end
+
+			<section class="settings-section">
+				<h2>Packages and container images</h2>
+				@for package in packages
+					<p><strong>@package.package_type · @package.name @package.version</strong> — @package.file_name (@package.downloads downloads)</p>
+				@end
+				@for manifest in manifests
+					<p><strong>@manifest.image_name:@manifest.reference</strong> <code>@manifest.digest</code> · protected: @manifest.protected</p>
+					@if can_maintain
+						@if manifest.protected
+							<form method="post" action="/@repo.user_name/@repo.name/platform/container-manifests/@manifest.id/protection"><input type="hidden" name="protected" value="false"><button type="submit">Unprotect</button></form>
+						@else
+							<form method="post" action="/@repo.user_name/@repo.name/platform/container-manifests/@manifest.id/protection"><input type="hidden" name="protected" value="true"><button type="submit">Protect</button></form>
+							<form method="post" action="/@repo.user_name/@repo.name/platform/container-manifests/@manifest.id/delete"><button type="submit">Delete manifest</button></form>
+						@end
+					@end
+				@end
+				@if can_develop
+					<form class="settings-form" method="post" action="/@repo.user_name/@repo.name/platform/packages">
+						<select name="package_type"><option>generic</option><option>npm</option><option>maven</option><option>pypi</option><option>nuget</option><option>composer</option><option>helm</option></select>
+						<input name="name" placeholder="Package name" required>
+						<input name="version" placeholder="Version" required>
+						<input name="file_name" placeholder="File name" required>
+						<textarea name="content" placeholder="Artifact content" required></textarea>
+						<textarea name="provenance_statement" placeholder="Optional provenance statement"></textarea>
+						<button type="submit">Publish package</button>
+					</form>
+				@end
+				@if can_maintain
+					<form class="settings-form" method="post" action="/@repo.user_name/@repo.name/platform/package-retention">
+						<label><input type="checkbox" name="enabled" checked> Enable package cleanup</label><input type="number" name="keep_latest" min="0" value="10"><input type="number" name="max_age_days" min="0" value="90"><label><input type="checkbox" name="include_yanked" checked> Delete yanked versions</label><button type="submit">Save package retention</button>
+					</form>
+					<form class="settings-form" method="post" action="/@repo.user_name/@repo.name/platform/container-retention">
+						<label><input type="checkbox" name="enabled" checked> Enable container cleanup</label><input type="number" name="keep_latest" min="0" value="10"><input type="number" name="max_age_days" min="0" value="90"><label><input type="checkbox" name="delete_untagged" checked> Delete untagged manifests</label><button type="submit">Save container retention</button>
+					</form>
+				@end
+			</section>
+
+			<section class="settings-section">
+				<h2>Security and compliance</h2>
+				@for scan in scans
+					<p>@scan.scan_type on <code>@scan.commit_sha</code>: <strong>@scan.status</strong> via @scan.scanner</p>
+				@end
+				@for finding in findings
+					<p><strong>@finding.severity: @finding.title</strong> — @finding.state (@finding.location)</p>
+				@end
+				@for policy in security_policies
+					<p>Policy <strong>@policy.name</strong> on <code>@policy.branch_pattern</code>: @policy.required_scan_types</p>
+				@end
+				@for policy in approval_policies
+					<p>Approval policy <strong>@policy.name</strong>: @policy.required_approvals @policy.approver_role approvals on <code>@policy.branch_pattern</code></p>
+				@end
+				@if can_maintain
+					<form class="settings-form" method="post" action="/@repo.user_name/@repo.name/platform/security-policies">
+						<input name="name" placeholder="Policy name" required>
+						<input name="branch_pattern" value="*" required>
+						<input name="required_scan_types" placeholder="sast,dependency,secret">
+						<input name="blocked_severities" placeholder="high,critical">
+						<input type="number" name="max_scan_age_hours" value="168" min="0">
+						<input name="allowed_licenses" placeholder="mit,apache-2.0">
+						<label><input type="checkbox" name="block_unresolved" checked> Block unresolved findings</label>
+						<button type="submit">Add security policy</button>
+					</form>
+					<form class="settings-form" method="post" action="/@repo.user_name/@repo.name/platform/approval-policies">
+						<input name="name" placeholder="Approval policy name" required><input name="branch_pattern" value="*" required><input type="number" name="required_approvals" value="1" min="0" max="100"><select name="approver_role"><option value="developer">Developer</option><option value="maintainer">Maintainer</option></select><button type="submit">Add approval policy</button>
+					</form>
+				@end
+			</section>
+
+			<section class="settings-section">
+				<h2>Feature flags</h2>
+				@for flag in flags
+					<p><strong>@flag.name</strong> — @flag.strategy @flag.rollout% · active: @flag.active</p>
+				@end
+				@if can_develop
+					<form class="settings-form" method="post" action="/@repo.user_name/@repo.name/platform/feature-flags">
+						<input name="name" placeholder="Flag name" required>
+						<input name="description" placeholder="Description">
+						<select name="strategy"><option value="all">All users</option><option value="percentage">Percentage</option><option value="targets">Targets</option></select>
+						<input type="number" name="rollout" min="0" max="100" value="100">
+						<input name="environments" placeholder="production,staging">
+						<input name="targets" placeholder="user-1,user-2">
+						<button type="submit">Create flag</button>
+					</form>
+				@end
+			</section>
+
+			<section class="settings-section">
+				<h2>Incidents</h2>
+				@for incident in incidents
+					<p><strong>#@incident.id @incident.title</strong> — @incident.severity / @incident.status</p>
+				@end
+				@if can_develop
+					<form class="settings-form" method="post" action="/@repo.user_name/@repo.name/platform/incidents">
+						<input name="title" placeholder="Incident title" required>
+						<textarea name="description"></textarea>
+						<select name="severity"><option>low</option><option>medium</option><option>high</option><option>critical</option></select>
+						<button type="submit">Create incident</button>
+					</form>
+				@end
+			</section>
+
+			<section class="settings-section">
+				<h2>Kubernetes agents and on-call</h2>
+				@for agent in agents
+					<p><strong>@agent.name</strong> — @agent.environment; last contact @agent.last_contact_at</p>
+				@end
+				@for schedule in schedules
+					<p><strong>@schedule.name</strong> — @schedule.timezone, @schedule.shift_seconds-second shifts</p>
+				@end
+				@for integration in alert_integrations
+					<p><strong>Alert integration: @integration.name</strong> — revoked: @integration.revoked, last used @integration.last_used_at</p>
+				@end
+				@if can_maintain
+					<form class="settings-form" method="post" action="/@repo.user_name/@repo.name/platform/agents">
+						<input name="name" placeholder="Agent name" required><input name="environment" placeholder="Environment" required><textarea name="configuration" placeholder="Agent configuration"></textarea><button type="submit">Create agent</button>
+					</form>
+					<form class="settings-form" method="post" action="/@repo.user_name/@repo.name/platform/on-call">
+						<input name="name" placeholder="Schedule name" required><input name="timezone" value="UTC" required><input type="number" name="shift_seconds" value="86400" min="300"><button type="submit">Create schedule</button>
+					</form>
+					<form class="settings-form" method="post" action="/@repo.user_name/@repo.name/platform/alert-integrations"><input name="name" placeholder="Alert integration name" required><button type="submit">Create alert integration</button></form>
+				@end
+			</section>
+		</div>
+		@include '../layout/footer.html'
+	</body>
+</html>
