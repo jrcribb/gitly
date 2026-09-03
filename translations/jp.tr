@@ -27,7 +27,7 @@ email
 メールアドレス
 -----
 index_intro
-Gitlyは以下の機能を備えたオープンソースの開発プラットフォームです
+コードのための高速なオープンソース開発基盤
 -----
 index_source_hosting
 ソースコードホスティング
@@ -39,7 +39,7 @@ index_ci_cd
 CIとCD
 -----
 index_main_features
-主な機能：
+チームで開発するために必要なすべて
 -----
 index_feature_light_fast
 軽量で高速
@@ -48,7 +48,7 @@ index_feature_minimal_ram
 最小限のRAM使用量（最安の$3.5 AWS Lightsailインスタンスでも快適に動作）
 -----
 index_feature_easy_deploy
-デプロイが簡単（コンパイル済みテンプレートを含む1MB未満の単一バイナリ）
+シンプルで自己完結したデプロイ
 -----
 index_feature_no_js
 JavaScriptなしで動作

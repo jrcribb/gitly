@@ -27,7 +27,7 @@ email
 E-mail
 -----
 index_intro
-O Gitly é uma plataforma de desenvolvimento de código aberto com os seguintes recursos
+Uma plataforma rápida e open source para o seu código
 -----
 index_source_hosting
 Hospedagem de código-fonte
@@ -39,7 +39,7 @@ index_ci_cd
 CI e CD
 -----
 index_main_features
-Principais recursos:
+Tudo o que você precisa para criar em equipe
 -----
 index_feature_light_fast
 Leve e rápido
@@ -48,7 +48,7 @@ index_feature_minimal_ram
 Uso mínimo de RAM (funciona muito bem na instância mais barata da AWS Lightsail por $3.5)
 -----
 index_feature_easy_deploy
-Fácil de implantar (um único binário de <1 MB que inclui templates compilados)
+Implantação simples e autocontida
 -----
 index_feature_no_js
 Funciona sem JavaScript

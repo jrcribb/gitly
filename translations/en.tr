@@ -27,7 +27,7 @@ email
 Email
 -----
 index_intro
-Gitly is an open-source development platform that has the following features
+A fast, open-source home for your code
 -----
 index_source_hosting
 Source code hosting
@@ -36,10 +36,10 @@ index_project_management
 Project management
 -----
 index_ci_cd
-CI & CD
+CI &amp; CD
 -----
 index_main_features
-Main features:
+Everything you need to ship together
 -----
 index_feature_light_fast
 Light and fast
@@ -48,7 +48,7 @@ index_feature_minimal_ram
 Minimal amount of RAM usage (works great on the cheapest $3.5 AWS Lightsail instance)
 -----
 index_feature_easy_deploy
-Easy to deploy (a single <1 MB binary that includes compiled templates)
+Simple, self-contained deployment
 -----
 index_feature_no_js
 Works without JavaScript

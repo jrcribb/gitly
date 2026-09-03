@@ -27,7 +27,7 @@ email
 邮箱
 -----
 index_intro
-Gitly 是一个开源开发平台，具有以下功能
+快速、开源的代码协作平台
 -----
 index_source_hosting
 源代码托管
@@ -39,7 +39,7 @@ index_ci_cd
 CI 和 CD
 -----
 index_main_features
-主要功能：
+团队交付所需的一切
 -----
 index_feature_light_fast
 轻量快速
@@ -48,7 +48,7 @@ index_feature_minimal_ram
 最低 RAM 占用（在最便宜的 $3.5 AWS Lightsail 实例上也能流畅运行）
 -----
 index_feature_easy_deploy
-易于部署（单个 <1 MB 的二进制文件，包含已编译的模板）
+简单、自包含的部署方式
 -----
 index_feature_no_js
 无需 JavaScript 即可运行
