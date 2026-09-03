@@ -13,9 +13,11 @@ fn cli_app(config_path string) !&App {
 	}
 }
 
-fn ssh_environment(app &App, repo Repo, access_level int, config_path string) map[string]string {
+fn ssh_environment(app &App, repo Repo, access_level int, protected_branch_grants string,
+	config_path string) map[string]string {
 	return {
 		'GITLY_PROTECTED_BRANCH_RULES': app.protected_branch_rules_env(repo.id)
+		'GITLY_PROTECTED_BRANCH_GRANTS': protected_branch_grants
 		'GITLY_USER_ACCESS_LEVEL':      access_level.str()
 		'GITLY_RUN_POST_RECEIVE':       '1'
 		'GITLY_EXECUTABLE':             os.executable()
@@ -28,7 +30,7 @@ fn deploy_key_access_level(key DeployKey) int {
 	if !key.can_push {
 		return project_access_reporter
 	}
-	return if key.can_push_protected { project_access_owner } else { project_access_developer }
+	return project_access_developer
 }
 
 fn run_ssh_shell(kind string, key_id int, config_path string) int {
@@ -52,6 +54,7 @@ fn run_ssh_shell(kind string, key_id int, config_path string) int {
 		return 1
 	}
 	mut access_level := 0
+	mut protected_branch_grants := ''
 	if kind == 'user' {
 		key := app.find_ssh_key_by_id(key_id) or {
 			eprintln('Gitly: SSH key is not active')
@@ -88,6 +91,7 @@ fn run_ssh_shell(kind string, key_id int, config_path string) int {
 			return 1
 		}
 		access_level = deploy_key_access_level(key)
+		protected_branch_grants = app.deploy_key_protected_branch_grants_env(repo.id, key.id)
 		if target.service == 'git-receive-pack' && !key.can_push {
 			eprintln('Gitly: deploy key is read-only')
 			return 1
@@ -99,8 +103,9 @@ fn run_ssh_shell(kind string, key_id int, config_path string) int {
 			return 1
 		}
 	}
-	app.mark_ssh_key_used(kind, key_id)
-	return run_git_service(repo, target, ssh_environment(app, repo, access_level, config_path))
+	app.mark_ssh_key_used(kind, key_id, ssh_client_ip(os.getenv('SSH_CONNECTION')))
+	return run_git_service(repo, target, ssh_environment(app, repo, access_level,
+		protected_branch_grants, config_path))
 }
 
 fn run_ssh_post_receive(repo_id int, config_path string) int {

@@ -221,11 +221,12 @@ fn test_protected_branch_hook_rejects_force_pushes() {
 			git_dir:        bare
 			primary_branch: 'main'
 		})!
-		app.protect_branch(1, 'main', project_access_maintainer, project_access_maintainer)!
+		rule_id := app.protect_branch(1, 'main', project_access_maintainer,
+			project_access_maintainer)!
 		repo := app.find_repo_by_id(1) or { panic('repo missing') }
 		app.ensure_protected_branch_hook(repo)!
 		assert git.Git.exec_in_dir(bare, ['config', '--get', 'core.hooksPath']).output.trim_space() == '.gitly-hooks'
-		environment := {
+		owner_environment := {
 			'GITLY_PROTECTED_BRANCH_RULES': app.protected_branch_rules_env(1)
 			'GITLY_USER_ACCESS_LEVEL':      project_access_owner.str()
 		}
@@ -233,17 +234,42 @@ fn test_protected_branch_hook_rejects_force_pushes() {
 		os.write_file(os.join_path(work, 'README.md'), 'one\n')!
 		assert git.Git.exec_in_dir(work, ['add', 'README.md']).exit_code == 0
 		assert git.Git.exec_in_dir(work, ['commit', '-m', 'first']).exit_code == 0
-		assert git.Git.exec_in_dir_with_env(work, ['push', 'origin', 'main'], environment).exit_code == 0
+		assert git.Git.exec_in_dir_with_env(work, ['push', 'origin', 'main'], owner_environment).exit_code == 0
+		wildcard_rule_id := app.protect_branch(1, '*', project_access_no_one,
+			project_access_no_one)!
 
 		os.write_file(os.join_path(work, 'README.md'), 'two\n')!
 		assert git.Git.exec_in_dir(work, ['commit', '-am', 'second']).exit_code == 0
-		assert git.Git.exec_in_dir_with_env(work, ['push', 'origin', 'main'], environment).exit_code == 0
+		developer_environment := {
+			'GITLY_PROTECTED_BRANCH_RULES':  app.protected_branch_rules_env(1)
+			'GITLY_PROTECTED_BRANCH_GRANTS': ''
+			'GITLY_USER_ACCESS_LEVEL':       project_access_developer.str()
+		}
+		denied := git.Git.exec_in_dir_with_env(work, ['push', 'origin', 'main'],
+			developer_environment)
+		assert denied.exit_code != 0
+		assert denied.output.contains('not allowed to push to protected branch')
+		main_only_environment := {
+			'GITLY_PROTECTED_BRANCH_RULES':  app.protected_branch_rules_env(1)
+			'GITLY_PROTECTED_BRANCH_GRANTS': rule_id.str()
+			'GITLY_USER_ACCESS_LEVEL':       project_access_developer.str()
+		}
+		overlap_denied := git.Git.exec_in_dir_with_env(work, ['push', 'origin', 'main'],
+			main_only_environment)
+		assert overlap_denied.exit_code != 0
+		granted_environment := {
+			'GITLY_PROTECTED_BRANCH_RULES':  app.protected_branch_rules_env(1)
+			'GITLY_PROTECTED_BRANCH_GRANTS': '${rule_id},${wildcard_rule_id}'
+			'GITLY_USER_ACCESS_LEVEL':       project_access_developer.str()
+		}
+		assert git.Git.exec_in_dir_with_env(work, ['push', 'origin', 'main'],
+			granted_environment).exit_code == 0
 
 		assert git.Git.exec_in_dir(work, ['reset', '--hard', 'HEAD~1']).exit_code == 0
 		os.write_file(os.join_path(work, 'README.md'), 'divergent\n')!
 		assert git.Git.exec_in_dir(work, ['commit', '-am', 'divergent']).exit_code == 0
 		forced := git.Git.exec_in_dir_with_env(work, ['push', '--force', 'origin', 'main'],
-			environment)
+			granted_environment)
 		assert forced.exit_code != 0
 		assert forced.output.contains('force-pushing to protected branch')
 	} $else {

@@ -535,6 +535,9 @@ fn (mut app App) create_tables() ! {
 		create table ProtectedBranch
 	}!
 	sql app.db {
+		create table DeployKeyProtectedBranchGrant
+	}!
+	sql app.db {
 		create table PrApproval
 	}!
 }
@@ -561,7 +564,10 @@ fn (mut app App) migrate_tables() ! {
 	app.add_missing_column('SshKey', 'usage_type', "TEXT NOT NULL DEFAULT 'auth'")!
 	app.add_missing_column('SshKey', 'expires_at', 'INTEGER NOT NULL DEFAULT 0')!
 	app.add_missing_column('SshKey', 'last_used_at', 'INTEGER NOT NULL DEFAULT 0')!
+	app.add_missing_column('SshKey', 'last_used_ip', "TEXT NOT NULL DEFAULT ''")!
 	app.add_missing_column('DeployKey', 'can_push_protected', db_bool_column_type())!
+	app.add_missing_column('DeployKey', 'protected_grants_migrated', db_bool_column_type())!
+	app.add_missing_column('DeployKey', 'last_used_ip', "TEXT NOT NULL DEFAULT ''")!
 	app.add_missing_column('PullRequest', 'merged_at', 'INTEGER NOT NULL DEFAULT 0')!
 	app.add_missing_column('PullRequest', 'merge_commit_hash', "TEXT NOT NULL DEFAULT ''")!
 	app.add_missing_column('PullRequest', 'head_repo_id', 'INTEGER NOT NULL DEFAULT 0')!
@@ -582,6 +588,10 @@ fn (mut app App) migrate_tables() ! {
 	app.backfill_default_branch_protection_once()!
 	app.clear_legacy_local_github_usernames()!
 	app.backfill_ssh_key_fingerprints()!
+	app.db.exec("update ${sql_table('SshKey')} set ${sql_table('usage_type')} = 'auth_and_signing' where ${sql_table('usage_type')} = 'both'")!
+	app.db.exec('create unique index if not exists idx_deploy_key_protected_branch_unique on ${sql_table('DeployKeyProtectedBranchGrant')} (deploy_key_id, protected_branch_id)')!
+	app.db.exec('create index if not exists idx_deploy_key_protected_branch_repo on ${sql_table('DeployKeyProtectedBranchGrant')} (repo_id, deploy_key_id)')!
+	app.backfill_deploy_key_protected_branch_grants()!
 	app.sync_authorized_keys() or { app.warn('Could not synchronize authorized_keys: ${err}') }
 
 	app.db.exec('create index if not exists idx_commit_repo_created on ${sql_table('Commit')} (repo_id, created_at desc)')!

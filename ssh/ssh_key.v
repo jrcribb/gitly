@@ -6,6 +6,7 @@ import crypto.sha256
 import os
 import rand
 import git
+import net
 
 const ssh_authorized_keys_begin = '# BEGIN GITLY MANAGED KEYS'
 const ssh_authorized_keys_end = '# END GITLY MANAGED KEYS'
@@ -19,6 +20,7 @@ struct SshKey {
 	usage_type   string = 'auth'
 	expires_at   int
 	last_used_at int
+	last_used_ip string
 	created_at   time.Time
 }
 
@@ -30,11 +32,24 @@ struct DeployKey {
 	key                string
 	fingerprint        string
 	can_push           bool
+	// Legacy migration source only. Authorization uses
+	// DeployKeyProtectedBranchGrant instead.
 	can_push_protected bool
+	protected_grants_migrated bool
 	enabled            bool = true
 	expires_at         int
 	last_used_at       int
+	last_used_ip       string
 	created_at         int
+}
+
+struct DeployKeyProtectedBranchGrant {
+	id                  int @[primary; sql: serial]
+	repo_id             int
+	deploy_key_id       int
+	protected_branch_id int
+	created_by          int
+	created_at          int
 }
 
 struct SshCommandTarget {
@@ -90,11 +105,19 @@ fn normalized_ssh_public_key(value string) ?string {
 }
 
 fn valid_ssh_usage_type(value string) bool {
-	return value in ['auth', 'signing', 'both']
+	return value in ['auth', 'signing', 'auth_and_signing', 'both']
+}
+
+fn normalized_ssh_usage_type(value string) ?string {
+	if !valid_ssh_usage_type(value) {
+		return none
+	}
+	return if value == 'both' { 'auth_and_signing' } else { value }
 }
 
 fn (key SshKey) usable_for_auth(now int) bool {
-	return key.usage_type in ['auth', 'both'] && (key.expires_at == 0 || key.expires_at > now)
+	return key.usage_type in ['auth', 'auth_and_signing', 'both']
+		&& (key.expires_at == 0 || key.expires_at > now)
 }
 
 fn (key DeployKey) usable_for_auth(now int) bool {
@@ -110,6 +133,15 @@ fn ssh_timestamp_description(value int) string {
 
 fn (key SshKey) last_used_description() string {
 	return ssh_timestamp_description(key.last_used_at)
+}
+
+fn (key SshKey) usage_description() string {
+	return match key.usage_type {
+		'auth' { 'Authentication' }
+		'signing' { 'Signing' }
+		'auth_and_signing', 'both' { 'Authentication and signing' }
+		else { 'Unknown' }
+	}
 }
 
 fn (key SshKey) expiry_description() string {
@@ -143,7 +175,10 @@ fn (mut app App) ssh_fingerprint_exists(fingerprint string) bool {
 fn (mut app App) add_ssh_key(user_id int, title string, key string, usage_type string, expires_at int) ! {
 	normalized := normalized_ssh_public_key(key) or { return error('Invalid SSH public key') }
 	fingerprint := ssh_key_fingerprint(normalized) or { return error('Invalid SSH public key') }
-	if user_id <= 0 || !valid_short_name(title) || !valid_ssh_usage_type(usage_type)
+	normalized_usage := normalized_ssh_usage_type(usage_type) or {
+		return error('SSH key is invalid or already in use')
+	}
+	if user_id <= 0 || !valid_short_name(title)
 		|| expires_at < 0 || app.ssh_fingerprint_exists(fingerprint) {
 		return error('SSH key is invalid or already in use')
 	}
@@ -152,7 +187,7 @@ fn (mut app App) add_ssh_key(user_id int, title string, key string, usage_type s
 		title:       title.trim_space()
 		key:         normalized
 		fingerprint: fingerprint
-		usage_type:  usage_type
+		usage_type:  normalized_usage
 		expires_at:  expires_at
 		created_at:  time.now()
 	}
@@ -186,25 +221,24 @@ fn (mut app App) remove_ssh_key(user_id int, id int) ! {
 }
 
 fn (mut app App) add_deploy_key(repo_id int, created_by int, title string, key string, can_push bool,
-	can_push_protected bool, expires_at int) ! {
+	expires_at int) ! {
 	normalized := normalized_ssh_public_key(key) or { return error('Invalid SSH public key') }
 	fingerprint := ssh_key_fingerprint(normalized) or { return error('Invalid SSH public key') }
 	if repo_id <= 0 || created_by <= 0 || !valid_short_name(title) || expires_at < 0
-		|| (can_push_protected && !can_push)
 		|| app.ssh_fingerprint_exists(fingerprint) {
 		return error('Deploy key is invalid or already in use')
 	}
 	row := DeployKey{
-		repo_id:            repo_id
-		created_by:         created_by
-		title:              title.trim_space()
-		key:                normalized
-		fingerprint:        fingerprint
-		can_push:           can_push
-		can_push_protected: can_push_protected
-		enabled:            true
-		expires_at:         expires_at
-		created_at:         int(time.now().unix())
+		repo_id:                   repo_id
+		created_by:                created_by
+		title:                     title.trim_space()
+		key:                       normalized
+		fingerprint:               fingerprint
+		can_push:                  can_push
+		protected_grants_migrated: true
+		enabled:                   true
+		expires_at:                expires_at
+		created_at:                int(time.now().unix())
 	}
 	sql app.db {
 		insert row into DeployKey
@@ -228,31 +262,180 @@ fn (app &App) find_deploy_key_by_id(id int) ?DeployKey {
 	return rows.first()
 }
 
-fn (mut app App) remove_deploy_key(repo_id int, id int) ! {
+fn (app &App) find_repo_deploy_key_grants(repo_id int) []DeployKeyProtectedBranchGrant {
+	return sql app.db {
+		select from DeployKeyProtectedBranchGrant where repo_id == repo_id order by id
+	} or { []DeployKeyProtectedBranchGrant{} }
+}
+
+fn (app &App) find_deploy_key_protected_branch_grants(repo_id int, deploy_key_id int) []DeployKeyProtectedBranchGrant {
+	return sql app.db {
+		select from DeployKeyProtectedBranchGrant where repo_id == repo_id
+		&& deploy_key_id == deploy_key_id order by id
+	} or { []DeployKeyProtectedBranchGrant{} }
+}
+
+fn (app &App) deploy_key_has_protected_branch_grant(repo_id int, deploy_key_id int, protected_branch_id int) bool {
+	count := sql app.db {
+		select count from DeployKeyProtectedBranchGrant where repo_id == repo_id
+		&& deploy_key_id == deploy_key_id && protected_branch_id == protected_branch_id
+	} or { 0 }
+	return count > 0
+}
+
+fn (app &App) deploy_key_protected_branch_grants_env(repo_id int, deploy_key_id int) string {
+	return app.find_deploy_key_protected_branch_grants(repo_id, deploy_key_id).map(it.protected_branch_id.str()).join(',')
+}
+
+fn (mut app App) grant_deploy_key_protected_branch(repo_id int, deploy_key_id int, protected_branch_id int,
+	created_by int) ! {
+	if repo_id <= 0 || deploy_key_id <= 0 || protected_branch_id <= 0 || created_by <= 0 {
+		return error('invalid protected branch grant')
+	}
+	mut tx := db_begin_transaction(mut app.db)!
+	mut committed := false
+	defer {
+		if !committed {
+			tx.rollback() or {}
+		}
+	}
+	locked_keys := tx.execute('update ${sql_table('DeployKey')} set ${sql_table('id')} = ${sql_table('id')}
+		where ${sql_table('id')} = ${deploy_key_id}
+		and ${sql_table('repo_id')} = ${repo_id}
+		and ${sql_table('can_push')} is true
+		returning ${sql_table('id')}')!
+	if locked_keys.len != 1 {
+		return error('repository write deploy key not found')
+	}
+	locked_rules := tx.execute('update ${sql_table('ProtectedBranch')} set ${sql_table('id')} = ${sql_table('id')}
+		where ${sql_table('id')} = ${protected_branch_id}
+		and ${sql_table('repo_id')} = ${repo_id}
+		returning ${sql_table('id')}')!
+	if locked_rules.len != 1 {
+		return error('protected branch rule not found')
+	}
+	existing := sql tx {
+		select count from DeployKeyProtectedBranchGrant where repo_id == repo_id
+		&& deploy_key_id == deploy_key_id && protected_branch_id == protected_branch_id
+	}!
+	if existing == 0 {
+		grant := DeployKeyProtectedBranchGrant{
+			repo_id:             repo_id
+			deploy_key_id:       deploy_key_id
+			protected_branch_id: protected_branch_id
+			created_by:          created_by
+			created_at:          int(time.now().unix())
+		}
+		sql tx {
+			insert grant into DeployKeyProtectedBranchGrant
+		}!
+	}
+	tx.commit()!
+	committed = true
+}
+
+fn (mut app App) revoke_deploy_key_protected_branch(repo_id int, deploy_key_id int,
+	protected_branch_id int) ! {
+	if repo_id <= 0 || deploy_key_id <= 0 || protected_branch_id <= 0 {
+		return error('invalid protected branch grant')
+	}
+	key := app.find_deploy_key_by_id(deploy_key_id) or {
+		return error('deploy key not found')
+	}
+	if key.repo_id != repo_id {
+		return error('deploy key not found')
+	}
+	_ := app.find_protected_branch_by_id(repo_id, protected_branch_id) or {
+		return error('protected branch rule not found')
+	}
 	sql app.db {
+		delete from DeployKeyProtectedBranchGrant where repo_id == repo_id
+		&& deploy_key_id == deploy_key_id && protected_branch_id == protected_branch_id
+	}!
+}
+
+fn (mut app App) remove_deploy_key(repo_id int, id int) ! {
+	mut tx := db_begin_transaction(mut app.db)!
+	mut committed := false
+	defer {
+		if !committed {
+			tx.rollback() or {}
+		}
+	}
+	sql tx {
 		delete from DeployKey where id == id && repo_id == repo_id
 	}!
+	sql tx {
+		delete from DeployKeyProtectedBranchGrant where deploy_key_id == id && repo_id == repo_id
+	}!
+	tx.commit()!
+	committed = true
 	app.sync_authorized_keys() or { app.warn('Could not update authorized_keys: ${err}') }
 }
 
 fn (mut app App) delete_repo_deploy_keys(repo_id int) ! {
-	sql app.db {
+	mut tx := db_begin_transaction(mut app.db)!
+	mut committed := false
+	defer {
+		if !committed {
+			tx.rollback() or {}
+		}
+	}
+	sql tx {
 		delete from DeployKey where repo_id == repo_id
 	}!
+	sql tx {
+		delete from DeployKeyProtectedBranchGrant where repo_id == repo_id
+	}!
+	tx.commit()!
+	committed = true
 	app.sync_authorized_keys() or { app.warn('Could not update authorized_keys: ${err}') }
 }
 
-fn (mut app App) mark_ssh_key_used(kind string, id int) {
+fn (mut app App) mark_ssh_key_used(kind string, id int, client_ip string) {
 	now := int(time.now().unix())
 	if kind == 'user' {
 		sql app.db {
-			update SshKey set last_used_at = now where id == id
+			update SshKey set last_used_at = now, last_used_ip = client_ip where id == id
 		} or {}
-	} else {
+	} else if kind == 'deploy' {
 		sql app.db {
-			update DeployKey set last_used_at = now where id == id
+			update DeployKey set last_used_at = now, last_used_ip = client_ip where id == id
 		} or {}
 	}
+}
+
+fn ssh_client_ip(ssh_connection string) string {
+	fields := ssh_connection.fields()
+	if fields.len != 4 {
+		return ''
+	}
+	value := fields[0]
+	if value == '' || value.len > 45 {
+		return ''
+	}
+	if value.contains(':') {
+		net.canonical_ipv6(value) or { return '' }
+		return value
+	}
+	parts := value.split('.')
+	if parts.len != 4 {
+		return ''
+	}
+	for part in parts {
+		if part == '' || part.len > 3 {
+			return ''
+		}
+		for ch in part.bytes() {
+			if !ch.is_digit() {
+				return ''
+			}
+		}
+		if part.int() > 255 {
+			return ''
+		}
+	}
+	return value
 }
 
 fn authorized_keys_option_escape(value string) string {
@@ -265,7 +448,7 @@ fn shell_single_quote(value string) string {
 
 fn (app &App) ssh_forced_command(kind string, id int) string {
 	command := '${shell_single_quote(os.executable())} ssh-shell ${shell_single_quote(kind)} ${id} ${shell_single_quote(os.real_path('config.json'))}'
-	return 'restrict,command="${authorized_keys_option_escape(command)}"'
+	return 'restrict,no-agent-forwarding,no-port-forwarding,no-pty,no-user-rc,no-X11-forwarding,command="${authorized_keys_option_escape(command)}"'
 }
 
 fn (mut app App) managed_authorized_key_lines() []string {
@@ -346,6 +529,37 @@ fn (mut app App) backfill_ssh_key_fingerprints() ! {
 	}
 }
 
+// Convert the former repository-wide bypass into grants for the rules that
+// exist during upgrade. Later rules are never granted implicitly.
+fn (mut app App) backfill_deploy_key_protected_branch_grants() ! {
+	keys := sql app.db {
+		select from DeployKey where protected_grants_migrated == false
+	} or { []DeployKey{} }
+	for key in keys {
+		if key.can_push && key.can_push_protected {
+			for rule in app.find_protected_branches(key.repo_id) {
+				if !app.deploy_key_has_protected_branch_grant(key.repo_id, key.id, rule.id) {
+					grant := DeployKeyProtectedBranchGrant{
+						repo_id:             key.repo_id
+						deploy_key_id:       key.id
+						protected_branch_id: rule.id
+						created_by:          key.created_by
+						created_at:          int(time.now().unix())
+					}
+					sql app.db {
+						insert grant into DeployKeyProtectedBranchGrant
+					}!
+				}
+			}
+		}
+		id := key.id
+		completed := true
+		sql app.db {
+			update DeployKey set protected_grants_migrated = completed where id == id
+		}!
+	}
+}
+
 fn parse_ssh_original_command(command string) ?SshCommandTarget {
 	clean := command.trim_space()
 	space := clean.index(' ') or { return none }
@@ -373,17 +587,35 @@ fn parse_ssh_original_command(command string) ?SshCommandTarget {
 	}
 }
 
+fn git_service_environment(git_path string, environment map[string]string, requested_protocol string) map[string]string {
+	mut path := '/usr/bin:/bin:/usr/sbin:/sbin'
+	if os.is_abs_path(git_path) {
+		path = '${os.dir(git_path)}:${path}'
+	}
+	mut clean := {
+		'PATH':                path
+		'GIT_CONFIG_NOSYSTEM': '1'
+		'GIT_CONFIG_GLOBAL':   '/dev/null'
+		'GIT_TERMINAL_PROMPT': '0'
+	}
+	for key, value in environment {
+		if key in ['GITLY_PROTECTED_BRANCH_RULES', 'GITLY_PROTECTED_BRANCH_GRANTS',
+			'GITLY_USER_ACCESS_LEVEL', 'GITLY_RUN_POST_RECEIVE', 'GITLY_EXECUTABLE',
+			'GITLY_REPO_ID', 'GITLY_CONFIG_PATH'] {
+			clean[key] = value
+		}
+	}
+	if requested_protocol == 'version=2' {
+		clean['GIT_PROTOCOL'] = requested_protocol
+	}
+	return clean
+}
+
 fn run_git_service(repo Repo, target SshCommandTarget, environment map[string]string) int {
 	git_path := git.get_git_executable_path() or { 'git' }
 	mut process := os.new_process(git_path)
 	process.set_args([target.service.after('git-'), repo.git_dir])
-	if environment.len > 0 {
-		mut merged := os.environ()
-		for key, value in environment {
-			merged[key] = value
-		}
-		process.set_environment(merged)
-	}
+	process.set_environment(git_service_environment(git_path, environment, os.getenv('GIT_PROTOCOL')))
 	process.run()
 	process.wait()
 	code := process.code

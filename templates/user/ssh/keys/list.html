@@ -35,7 +35,10 @@
 					<div class="ssh-key">
 						<h3>@ssh_key.title</h3>
 						<p><code>@ssh_key.fingerprint</code></p>
-						<p>Usage: @ssh_key.usage_type · Added @ssh_key.created_at.relative() · Last used: @{ssh_key.last_used_description()} · Expires: @{ssh_key.expiry_description()}</p>
+						<p>Usage: @{ssh_key.usage_description()} · Added @ssh_key.created_at.relative() · Last used: @{ssh_key.last_used_description()} · Expires: @{ssh_key.expiry_description()}</p>
+						@if ssh_key.last_used_ip != ''
+							<p>Last used from: <code>@ssh_key.last_used_ip</code></p>
+						@end
 						<button class="ssh-key-remove" data-id="@ssh_key.id" data-username="@ctx.user.username" data-title="@ssh_key.title">Remove</button>
 					</div>
 				@end

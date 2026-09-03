@@ -8,6 +8,7 @@ import git
 
 const protected_branch_pre_receive_hook = '#!/bin/sh
 rules="\${GITLY_PROTECTED_BRANCH_RULES:-}"
+grants="\${GITLY_PROTECTED_BRANCH_GRANTS:-}"
 access="\${GITLY_USER_ACCESS_LEVEL:-0}"
 while read old_hash new_hash ref_name; do
 	case "\$ref_name" in
@@ -28,13 +29,18 @@ while read old_hash new_hash ref_name; do
 		else
 			remaining="\${remaining#*;}"
 		fi
-		pattern="\${rule%%|*}"
+		rule_id="\${rule%%|*}"
 		rest="\${rule#*|}"
+		pattern="\${rest%%|*}"
+		rest="\${rest#*|}"
 		push_access="\${rest%%|*}"
 		case "\$branch" in
 			\$pattern)
 				protected=1
-				if [ "\$push_access" -gt "\$required" ]; then required="\$push_access"; fi
+				case ",\$grants," in
+					*,"\$rule_id",*) ;;
+					*) if [ "\$push_access" -gt "\$required" ]; then required="\$push_access"; fi ;;
+				esac
 				;;
 		esac
 	done
@@ -148,7 +154,7 @@ fn (app &App) find_protected_branch_by_id(repo_id int, rule_id int) ?ProtectedBr
 }
 
 fn (app &App) protected_branch_rules_env(repo_id int) string {
-	return app.find_protected_branches(repo_id).map('${it.pattern}|${it.push_access}|${it.merge_access}').join(';')
+	return app.find_protected_branches(repo_id).map('${it.id}|${it.pattern}|${it.push_access}|${it.merge_access}').join(';')
 }
 
 fn (app &App) ensure_protected_branch_hook(repo Repo) ! {
@@ -240,9 +246,22 @@ fn (mut app App) unprotect_branch(repo_id int, rule_id int) ! {
 	if repo_id <= 0 || rule_id <= 0 {
 		return error('invalid protected branch rule')
 	}
-	sql app.db {
+	mut tx := db_begin_transaction(mut app.db)!
+	mut committed := false
+	defer {
+		if !committed {
+			tx.rollback() or {}
+		}
+	}
+	sql tx {
 		delete from ProtectedBranch where id == rule_id && repo_id == repo_id
 	}!
+	sql tx {
+		delete from DeployKeyProtectedBranchGrant where repo_id == repo_id
+		&& protected_branch_id == rule_id
+	}!
+	tx.commit()!
+	committed = true
 }
 
 fn (mut app App) ensure_default_branch_protection(repo_id int, branch string) ! {
@@ -288,7 +307,19 @@ fn (mut app App) backfill_default_branch_protection_once() ! {
 }
 
 fn (mut app App) delete_repo_protected_branches(repo_id int) ! {
-	sql app.db {
+	mut tx := db_begin_transaction(mut app.db)!
+	mut committed := false
+	defer {
+		if !committed {
+			tx.rollback() or {}
+		}
+	}
+	sql tx {
 		delete from ProtectedBranch where repo_id == repo_id
 	}!
+	sql tx {
+		delete from DeployKeyProtectedBranchGrant where repo_id == repo_id
+	}!
+	tx.commit()!
+	committed = true
 }

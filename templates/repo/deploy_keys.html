@@ -16,7 +16,6 @@
 				<div class="field"><input name="title" placeholder="Title" required maxlength="80"></div>
 				<div class="field"><textarea name="key" placeholder="SSH public key" required></textarea></div>
 				<div class="field"><label><input type="checkbox" name="can_push"> Allow write access</label></div>
-				<div class="field"><label><input type="checkbox" name="can_push_protected"> Allow writes to protected branches</label></div>
 				<div class="field"><label for="expires_at">Expiration date (optional)</label><input id="expires_at" type="date" name="expires_at"></div>
 				<button type="submit">Add deploy key</button>
 			</form>
@@ -28,15 +27,31 @@
 						<h3>@key.title</h3>
 						<p><code>@key.fingerprint</code></p>
 						@if key.can_push
-							@if key.can_push_protected
-								<p>Read/write access, including protected branches</p>
-							@else
-								<p>Read/write access; protected branch rules apply at Developer level</p>
-							@end
+							<p>Read/write access; protected branches require an explicit grant.</p>
 						@else
 							<p>Read-only access</p>
 						@end
 						<p>Last used: @{key.last_used_description()} · Expires: @{key.expiry_description()}</p>
+						@if key.last_used_ip != ''
+							<p>Last used from: <code>@key.last_used_ip</code></p>
+						@end
+						@if key.can_push
+							<h4>Protected branch grants</h4>
+							@if protected_branches.len == 0
+								<p>No protected branch rules are configured.</p>
+							@else
+								@for rule in protected_branches
+									<div>
+										<code>@rule.pattern</code>
+										@if app.deploy_key_has_protected_branch_grant(repo.id, key.id, rule.id)
+											<form action="/@repo.user_name/@repo.name/settings/deploy-keys/@key.id/protected-branches/@rule.id/revoke" method="post"><button type="submit">Revoke grant</button></form>
+										@else
+											<form action="/@repo.user_name/@repo.name/settings/deploy-keys/@key.id/protected-branches/@rule.id/grant" method="post"><button type="submit">Grant push access</button></form>
+										@end
+									</div>
+								@end
+							@end
+						@end
 						<form action="/@repo.user_name/@repo.name/settings/deploy-keys/@key.id/delete" method="post"><button type="submit">Remove</button></form>
 					</div>
 				@end

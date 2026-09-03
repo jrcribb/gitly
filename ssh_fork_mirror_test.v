@@ -160,13 +160,19 @@ fn test_ssh_keys_generate_managed_authorized_keys_and_clone_url() {
 		app.add_ssh_key(1, 'Laptop', key, 'auth', 0)!
 		managed := os.read_file(app.config.ssh_authorized_keys_path)!
 		assert managed.contains(ssh_authorized_keys_begin)
-		assert managed.contains('restrict,command=')
+		assert managed.contains('restrict,no-agent-forwarding,no-port-forwarding,no-pty,no-user-rc,no-X11-forwarding')
+		assert managed.contains('command=')
 		assert managed.contains('ssh-shell')
 		assert managed.contains('user')
 		assert managed.contains(normalized_ssh_public_key(key) or { '' })
 		keys := app.find_ssh_keys(1)
 		assert keys.len == 1
 		assert keys[0].fingerprint.starts_with('SHA256:')
+		app.mark_ssh_key_used('user', keys[0].id, '192.0.2.10')
+		used_key := app.find_ssh_key_by_id(keys[0].id) or { panic('SSH key missing') }
+		assert used_key.last_used_at > 0
+		assert used_key.last_used_ip == '192.0.2.10'
+		assert used_key.to_api().last_used_ip == '192.0.2.10'
 		assert app.generate_ssh_clone_url(Repo{
 			user_name: 'alice'
 			name:      'project'
@@ -174,6 +180,29 @@ fn test_ssh_keys_generate_managed_authorized_keys_and_clone_url() {
 	} $else {
 		assert true
 	}
+}
+
+fn test_ssh_key_usage_and_expiry_are_enforced() {
+	now := 1_800_000_000
+	assert SshKey{
+		usage_type: 'auth'
+	}.usable_for_auth(now)
+	assert SshKey{
+		usage_type: 'auth_and_signing'
+		expires_at: now + 1
+	}.usable_for_auth(now)
+	assert normalized_ssh_usage_type('both') or { '' } == 'auth_and_signing'
+	assert !SshKey{
+		usage_type: 'signing'
+	}.usable_for_auth(now)
+	assert !SshKey{
+		usage_type: 'auth'
+		expires_at: now
+	}.usable_for_auth(now)
+	assert !DeployKey{
+		enabled:    true
+		expires_at: now - 1
+	}.usable_for_auth(now)
 }
 
 fn test_deploy_key_write_access_does_not_bypass_protected_branches_by_default() {
@@ -184,7 +213,134 @@ fn test_deploy_key_write_access_does_not_bypass_protected_branches_by_default() 
 	assert deploy_key_access_level(DeployKey{
 		can_push:           true
 		can_push_protected: true
-	}) == project_access_owner
+	}) == project_access_developer
+}
+
+fn test_deploy_key_protected_branch_grants_are_explicit_and_repo_scoped() {
+	$if sqlite ? {
+		root := os.join_path(os.temp_dir(), 'gitly_deploy_grants_${os.getpid()}')
+		os.rmdir_all(root) or {}
+		os.mkdir_all(root)!
+		mut app, db_path := transport_test_app(root)!
+		defer {
+			app.db.close() or {}
+			os.rmdir_all(root) or {}
+			for suffix in ['', '-shm', '-wal'] {
+				os.rm(db_path + suffix) or {}
+			}
+		}
+		insert_transport_user(mut app, 1, 'owner')!
+		app.add_repo(Repo{
+			id:             1
+			name:           'project'
+			user_id:        1
+			user_name:      'owner'
+			primary_branch: 'main'
+		})!
+		app.add_repo(Repo{
+			id:             2
+			name:           'other'
+			user_id:        1
+			user_name:      'owner'
+			primary_branch: 'main'
+		})!
+		main_rule := app.protect_branch(1, 'main', project_access_maintainer,
+			project_access_maintainer)!
+		release_rule := app.protect_branch(1, 'release/*', project_access_maintainer,
+			project_access_maintainer)!
+		other_repo_rule := app.protect_branch(2, 'main', project_access_maintainer,
+			project_access_maintainer)!
+		key := 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPTp8P3nHx3Eu0PUM1Op46RGvl/9Ln+w8pqoW5b+RF9z deploy@example'
+		app.add_deploy_key(1, 1, 'Automation', key, true, 0)!
+		deploy_key := app.find_repo_deploy_keys(1).first()
+		assert app.deploy_key_protected_branch_grants_env(1, deploy_key.id) == ''
+
+		app.grant_deploy_key_protected_branch(1, deploy_key.id, main_rule, 1)!
+		assert app.deploy_key_has_protected_branch_grant(1, deploy_key.id, main_rule)
+		assert !app.deploy_key_has_protected_branch_grant(1, deploy_key.id, release_rule)
+		assert app.deploy_key_protected_branch_grants_env(1, deploy_key.id) == main_rule.str()
+		assert app.deploy_key_to_api(deploy_key).protected_branch_ids == [main_rule]
+		assert !app.deploy_key_to_api(deploy_key).can_push_protected
+		mut cross_repo_rejected := false
+		app.grant_deploy_key_protected_branch(1, deploy_key.id, other_repo_rule, 1) or {
+			cross_repo_rejected = true
+		}
+		assert cross_repo_rejected
+		read_only := DeployKey{
+			id:         99
+			repo_id:    1
+			created_by: 1
+			title:      'Read-only automation'
+			enabled:    true
+		}
+		sql app.db {
+			insert read_only into DeployKey
+		}!
+		mut read_only_rejected := false
+		app.grant_deploy_key_protected_branch(1, read_only.id, main_rule, 1) or {
+			read_only_rejected = true
+		}
+		assert read_only_rejected
+
+		app.revoke_deploy_key_protected_branch(1, deploy_key.id, main_rule)!
+		assert !app.deploy_key_has_protected_branch_grant(1, deploy_key.id, main_rule)
+		app.grant_deploy_key_protected_branch(1, deploy_key.id, release_rule, 1)!
+		app.unprotect_branch(1, release_rule)!
+		assert app.find_repo_deploy_key_grants(1).len == 0
+		app.grant_deploy_key_protected_branch(1, deploy_key.id, main_rule, 1)!
+		app.remove_deploy_key(1, deploy_key.id)!
+		assert app.find_repo_deploy_key_grants(1).len == 0
+	} $else {
+		assert true
+	}
+}
+
+fn test_legacy_broad_deploy_key_access_is_migrated_once() {
+	$if sqlite ? {
+		root := os.join_path(os.temp_dir(), 'gitly_deploy_grants_migration_${os.getpid()}')
+		os.rmdir_all(root) or {}
+		os.mkdir_all(root)!
+		mut app, db_path := transport_test_app(root)!
+		defer {
+			app.db.close() or {}
+			os.rmdir_all(root) or {}
+			for suffix in ['', '-shm', '-wal'] {
+				os.rm(db_path + suffix) or {}
+			}
+		}
+		app.add_repo(Repo{
+			id:             1
+			name:           'project'
+			user_id:        1
+			user_name:      'owner'
+			primary_branch: 'main'
+		})!
+		first_rule := app.protect_branch(1, 'main', project_access_maintainer,
+			project_access_maintainer)!
+		legacy := DeployKey{
+			id:                 10
+			repo_id:            1
+			created_by:         1
+			title:              'Legacy automation'
+			can_push:           true
+			can_push_protected: true
+			enabled:            true
+		}
+		sql app.db {
+			insert legacy into DeployKey
+		}!
+		app.backfill_deploy_key_protected_branch_grants()!
+		assert app.deploy_key_has_protected_branch_grant(1, legacy.id, first_rule)
+		migrated := app.find_deploy_key_by_id(legacy.id) or { panic('legacy key missing') }
+		assert migrated.protected_grants_migrated
+
+		later_rule := app.protect_branch(1, 'release/*', project_access_maintainer,
+			project_access_maintainer)!
+		app.backfill_deploy_key_protected_branch_grants()!
+		assert !app.deploy_key_has_protected_branch_grant(1, legacy.id, later_rule)
+	} $else {
+		assert true
+	}
 }
 
 fn test_mirror_credentials_use_authenticated_encryption() {

@@ -202,6 +202,38 @@ fn test_ssh_forced_command_parser_is_strict() {
 	assert parse_ssh_original_command("git-upload-pack '/etc/passwd'") == none
 	assert parse_ssh_original_command("git-upload-pack 'alice/../secret.git'") == none
 	assert parse_ssh_original_command("git-upload-pack 'alice/project.git'; id") == none
+	assert parse_ssh_original_command("git-upload-pack 'alice/project.git' extra") == none
+	assert parse_ssh_original_command('git-upload-pack alice/project.git') == none
+	assert parse_ssh_original_command("git-upload-pack 'alice/project/extra.git'") == none
+	assert parse_ssh_original_command("git-upload-pack 'alice/project.git'\nid") == none
+}
+
+fn test_ssh_connection_metadata_only_accepts_an_ip_address() {
+	assert ssh_client_ip('192.0.2.10 53210 192.0.2.20 22') == '192.0.2.10'
+	assert ssh_client_ip('2001:db8::10 53210 2001:db8::20 22') == '2001:db8::10'
+	assert ssh_client_ip('client.example 53210 192.0.2.20 22') == ''
+	assert ssh_client_ip('999.0.0.1 53210 192.0.2.20 22') == ''
+	assert ssh_client_ip('2001:::10 53210 2001:db8::20 22') == ''
+	assert ssh_client_ip("192.0.2.10\nINJECTED=1 53210 192.0.2.20 22") == ''
+}
+
+fn test_forced_git_service_uses_an_allowlisted_environment() {
+	environment := git_service_environment('/usr/bin/git', {
+		'GITLY_REPO_ID':       '42'
+		'GITLY_UNRECOGNIZED':   'not allowlisted'
+		'GIT_CONFIG_COUNT':     '1'
+		'LD_PRELOAD':           '/tmp/evil.so'
+		'SSH_ORIGINAL_COMMAND': 'arbitrary command'
+	}, 'version=2')
+	assert environment['GITLY_REPO_ID'] == '42'
+	assert environment['GIT_PROTOCOL'] == 'version=2'
+	assert environment['GIT_CONFIG_NOSYSTEM'] == '1'
+	assert environment['GIT_CONFIG_GLOBAL'] == '/dev/null'
+	assert 'GIT_CONFIG_COUNT' !in environment
+	assert 'GITLY_UNRECOGNIZED' !in environment
+	assert 'LD_PRELOAD' !in environment
+	assert 'SSH_ORIGINAL_COMMAND' !in environment
+	assert 'HOME' !in environment
 }
 
 fn test_authorized_keys_managed_block_preserves_admin_keys() {

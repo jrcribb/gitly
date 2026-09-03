@@ -13,20 +13,23 @@ struct ApiSshKeyView {
 	usage_type   string
 	expires_at   int
 	last_used_at int
+	last_used_ip string
 	created_at   i64
 }
 
 struct ApiDeployKeyView {
-	id                 int
-	title              string
-	key                string
-	fingerprint        string
-	can_push           bool
-	can_push_protected bool
-	enabled            bool
-	expires_at         int
-	last_used_at       int
-	created_at         int
+	id                   int
+	title                string
+	key                  string
+	fingerprint          string
+	can_push             bool
+	can_push_protected   bool
+	protected_branch_ids []int
+	enabled              bool
+	expires_at           int
+	last_used_at         int
+	last_used_ip         string
+	created_at           int
 }
 
 struct ApiMirrorView {
@@ -124,23 +127,35 @@ fn (key SshKey) to_api() ApiSshKeyView {
 		usage_type:   key.usage_type
 		expires_at:   key.expires_at
 		last_used_at: key.last_used_at
+		last_used_ip: key.last_used_ip
 		created_at:   key.created_at.unix()
 	}
 }
 
-fn (key DeployKey) to_api() ApiDeployKeyView {
+fn (app &App) deploy_key_to_api(key DeployKey) ApiDeployKeyView {
+	protected_branch_ids := app.find_deploy_key_protected_branch_grants(key.repo_id,
+		key.id).map(it.protected_branch_id)
+	protected_branches := app.find_protected_branches(key.repo_id)
 	return ApiDeployKeyView{
-		id:                 key.id
-		title:              key.title
-		key:                key.key
-		fingerprint:        key.fingerprint
-		can_push:           key.can_push
-		can_push_protected: key.can_push_protected
-		enabled:            key.enabled
-		expires_at:         key.expires_at
-		last_used_at:       key.last_used_at
-		created_at:         key.created_at
+		id:                   key.id
+		title:                key.title
+		key:                  key.key
+		fingerprint:          key.fingerprint
+		can_push:             key.can_push
+		// Compatibility field: true only when every current rule is granted.
+		can_push_protected:   key.can_push && protected_branches.len > 0
+			&& protected_branches.all(protected_branch_ids.contains(it.id))
+		protected_branch_ids: protected_branch_ids
+		enabled:              key.enabled
+		expires_at:           key.expires_at
+		last_used_at:         key.last_used_at
+		last_used_ip:         key.last_used_ip
+		created_at:           key.created_at
 	}
+}
+
+fn (app &App) repo_deploy_keys_to_api(repo_id int) []ApiDeployKeyView {
+	return app.find_repo_deploy_keys(repo_id).map(app.deploy_key_to_api(it))
 }
 
 fn (mirror RepoMirror) to_api() ApiMirrorView {
@@ -219,7 +234,7 @@ pub fn (mut app App) api_v1_repo_deploy_keys(mut ctx Context, username string, r
 	if app.repo_access_level(user.id, repo) < project_access_maintainer {
 		return ctx.transport_api_error(403, 'Maintainer access is required')
 	}
-	return ctx.json(app.find_repo_deploy_keys(repo.id).map(it.to_api()))
+	return ctx.json(app.repo_deploy_keys_to_api(repo.id))
 }
 
 @['/api/v1/repos/:username/:repo_name/deploy-keys'; post]
@@ -239,12 +254,54 @@ pub fn (mut app App) api_v1_add_repo_deploy_key(mut ctx Context, username string
 		return ctx.transport_api_error(400, 'Invalid deploy key')
 	}
 	can_push := ctx.form['can_push'] == 'true' || ctx.form['can_push'] == '1'
-	can_push_protected := ctx.form['can_push_protected'] == 'true'
-		|| ctx.form['can_push_protected'] == '1'
+	if ctx.form['can_push_protected'] in ['true', '1'] {
+		return ctx.transport_api_error(400,
+			'Protected branch access must be granted to an explicit protected branch rule')
+	}
 	app.add_deploy_key(repo.id, user.id, ctx.form['title'], ctx.form['key'], can_push,
-		can_push_protected, expires_at) or { return ctx.transport_api_error(409, err.str()) }
+		expires_at) or { return ctx.transport_api_error(409, err.str()) }
 	keys := app.find_repo_deploy_keys(repo.id)
-	return ctx.json(keys.first().to_api())
+	return ctx.json(app.deploy_key_to_api(keys.first()))
+}
+
+@['/api/v1/repos/:username/:repo_name/deploy-keys/:key_id/protected-branches/:rule_id'; post]
+pub fn (mut app App) api_v1_grant_deploy_key_protected_branch(mut ctx Context, username string,
+	repo_name string, key_id string, rule_id string) veb.Result {
+	user := app.api_user_from_ctx(ctx) or { return ctx.api_unauthorized() }
+	repo := app.find_repo_by_name_and_username(repo_name, username) or {
+		return ctx.api_not_found()
+	}
+	if app.repo_access_level(user.id, repo) < project_access_maintainer {
+		return ctx.transport_api_error(403, 'Maintainer access is required')
+	}
+	app.grant_deploy_key_protected_branch(repo.id, key_id.int(), rule_id.int(), user.id) or {
+		return ctx.transport_api_error(400, err.str())
+	}
+	key := app.find_deploy_key_by_id(key_id.int()) or { return ctx.api_not_found() }
+	return ctx.json(app.deploy_key_to_api(key))
+}
+
+@['/api/v1/repos/:username/:repo_name/deploy-keys/:key_id/protected-branches/:rule_id'; 'delete']
+pub fn (mut app App) api_v1_revoke_deploy_key_protected_branch(mut ctx Context, username string,
+	repo_name string, key_id string, rule_id string) veb.Result {
+	user := app.api_user_from_ctx(ctx) or { return ctx.api_unauthorized() }
+	repo := app.find_repo_by_name_and_username(repo_name, username) or {
+		return ctx.api_not_found()
+	}
+	if app.repo_access_level(user.id, repo) < project_access_maintainer {
+		return ctx.transport_api_error(403, 'Maintainer access is required')
+	}
+	key := app.find_deploy_key_by_id(key_id.int()) or { return ctx.api_not_found() }
+	rule := app.find_protected_branch_by_id(repo.id, rule_id.int()) or {
+		return ctx.api_not_found()
+	}
+	if key.repo_id != repo.id {
+		return ctx.api_not_found()
+	}
+	app.revoke_deploy_key_protected_branch(repo.id, key.id, rule.id) or {
+		return ctx.transport_api_error(500, 'Could not revoke protected branch grant')
+	}
+	return ctx.api_success_response()
 }
 
 @['/api/v1/repos/:username/:repo_name/deploy-keys/:id'; 'delete']

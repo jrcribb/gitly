@@ -96,6 +96,7 @@ pub fn (mut app App) repo_deploy_keys(mut ctx Context, username string, repo_nam
 		return ctx.not_found()
 	}
 	deploy_keys := app.find_repo_deploy_keys(repo.id)
+	protected_branches := app.find_protected_branches(repo.id)
 	return $veb.html('templates/repo/deploy_keys.html')
 }
 
@@ -115,7 +116,7 @@ pub fn (mut app App) handle_add_deploy_key(mut ctx Context, username string, rep
 		return app.repo_deploy_keys(mut ctx, username, repo_name)
 	}
 	app.add_deploy_key(repo.id, ctx.user.id, title, key, ctx.form['can_push'] == 'on',
-		ctx.form['can_push_protected'] == 'on', expires_at) or {
+		expires_at) or {
 		ctx.error(err.str())
 		return app.repo_deploy_keys(mut ctx, username, repo_name)
 	}
@@ -133,5 +134,33 @@ pub fn (mut app App) handle_remove_deploy_key(mut ctx Context, username string, 
 		return ctx.not_found()
 	}
 	app.remove_deploy_key(repo.id, key.id) or { ctx.error('Could not delete the deploy key') }
+	return ctx.redirect('/${username}/${repo_name}/settings/deploy-keys')
+}
+
+@['/:username/:repo_name/settings/deploy-keys/:key_id/protected-branches/:rule_id/grant'; post]
+pub fn (mut app App) handle_grant_deploy_key_protected_branch(mut ctx Context, username string,
+	repo_name string, key_id string, rule_id string) veb.Result {
+	repo := app.find_repo_by_name_and_username(repo_name, username) or { return ctx.not_found() }
+	if !app.can_admin_repo(ctx, repo) {
+		return ctx.not_found()
+	}
+	app.grant_deploy_key_protected_branch(repo.id, key_id.int(), rule_id.int(), ctx.user.id) or {
+		ctx.error(err.str())
+		return app.repo_deploy_keys(mut ctx, username, repo_name)
+	}
+	return ctx.redirect('/${username}/${repo_name}/settings/deploy-keys')
+}
+
+@['/:username/:repo_name/settings/deploy-keys/:key_id/protected-branches/:rule_id/revoke'; post]
+pub fn (mut app App) handle_revoke_deploy_key_protected_branch(mut ctx Context, username string,
+	repo_name string, key_id string, rule_id string) veb.Result {
+	repo := app.find_repo_by_name_and_username(repo_name, username) or { return ctx.not_found() }
+	if !app.can_admin_repo(ctx, repo) {
+		return ctx.not_found()
+	}
+	app.revoke_deploy_key_protected_branch(repo.id, key_id.int(), rule_id.int()) or {
+		ctx.error('Could not revoke the protected branch grant')
+		return app.repo_deploy_keys(mut ctx, username, repo_name)
+	}
 	return ctx.redirect('/${username}/${repo_name}/settings/deploy-keys')
 }

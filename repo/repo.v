@@ -531,10 +531,13 @@ fn (mut app App) delete_repository(id int, path string, name string) ! {
 		delete from ProjectMember where repo_id == repo_id
 	}!
 	sql tx {
+		delete from DeployKey where repo_id == repo_id
+	}!
+	sql tx {
 		delete from ProtectedBranch where repo_id == repo_id
 	}!
 	sql tx {
-		delete from DeployKey where repo_id == repo_id
+		delete from DeployKeyProtectedBranchGrant where repo_id == repo_id
 	}!
 	sql tx {
 		update Repo set is_deleted = true where id == repo_id
