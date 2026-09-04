@@ -69,25 +69,25 @@ index_feature_pr_no_fork
 无需 fork 仓库即可提交拉取请求
 -----
 index_open_source
-开源
+开源自托管版本
 -----
 index_all_open_source
 所有功能均为开源
 -----
 index_min_ram
-最小内存
+自托管最低内存
 -----
 index_cheapest_server
 最便宜的服务器
 -----
 index_works_no_js
-无需 JS 即可运行
+禁用 JavaScript 后仍可运行
 -----
 index_detailed_lang_stats
-详细的语言统计
+仓库语言统计
 -----
 index_install_size
-安装大小
+自托管最低存储 / 安装
 -----
 index_load_time
 加载 vlang/v 仓库主页的时间
@@ -96,28 +96,91 @@ index_ci_features_header
 CI 功能
 -----
 index_cpu_cores
-CPU 核心数
+默认托管 Linux runner
 -----
 index_dep_cache
 内置依赖缓存
 -----
 index_separate_instance
-独立实例，支持 SSH 连接
+托管任务使用全新隔离环境
 -----
 index_instant_start
-提交/PR 时即时启动
+保证“即时”启动 CI
 -----
 index_stop_ci
-轻松停止整个 CI 运行（手动或在新提交/PR/强制推送时）
+一键取消提交 / PR / MR 的全部 CI
 -----
 index_logs_storage_time
-CI 日志存储时间
+CI 日志保留时间
 -----
 index_basic_ci_minutes
-基础套餐 CI 分钟数
+免费套餐托管 CI 配额
 -----
 index_price_per_user
-每用户每月价格
+入门付费团队套餐
+-----
+index_comparison_updated
+数据已于 2026 年 9 月根据官方文档核对。
+-----
+index_ci_interactive_shell
+进入托管 CI 机器的交互式 SSH/shell
+-----
+index_ci_manual_cancel
+手动取消单个 workflow / pipeline
+-----
+index_ci_automatic_trigger
+提交 / PR / MR 时自动运行
+-----
+index_ci_auto_cancel
+新提交时自动取消过期 CI
+-----
+index_private_repo
+私有仓库
+-----
+index_public_repo
+公共仓库
+-----
+index_minimum
+最低
+-----
+index_baseline
+基准
+-----
+index_self_managed
+自托管
+-----
+index_hosted
+托管
+-----
+index_hosted_beta
+托管测试版
+-----
+index_runner_dependent
+取决于 runner
+-----
+index_no_builtin
+无内置会话
+-----
+index_per_workflow_run
+按单个 workflow run
+-----
+index_whole_pipeline
+整个 pipeline
+-----
+index_requires_configuration
+需要配置
+-----
+index_indefinite_default
+默认无限期
+-----
+index_default_ninety_days
+默认 90 天
+-----
+index_public_repos_free
+公共仓库免费
+-----
+index_billed_annually
+按年计费
 -----
 index_yes
 是

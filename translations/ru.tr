@@ -69,25 +69,25 @@ index_feature_pr_no_fork
 Отправка pull request без форка репозитория
 -----
 index_open_source
-Открытый исходный код
+Самостоятельно размещаемая версия с открытым кодом
 -----
 index_all_open_source
 Все возможности с открытым исходным кодом
 -----
 index_min_ram
-Минимум RAM
+Минимум RAM для самостоятельного размещения
 -----
 index_cheapest_server
 Самый дешёвый сервер
 -----
 index_works_no_js
-Работает без JS
+Работает с отключённым JavaScript
 -----
 index_detailed_lang_stats
-Подробная статистика языков
+Статистика языков репозитория
 -----
 index_install_size
-Размер установки
+Минимальное хранилище / размер установки
 -----
 index_load_time
 Время загрузки главной страницы репозитория vlang/v
@@ -96,28 +96,91 @@ index_ci_features_header
 Возможности CI
 -----
 index_cpu_cores
-Кол-во ядер CPU
+Стандартный облачный Linux runner
 -----
 index_dep_cache
-Встроенный кеш зависимостей
+Встроенное кеширование зависимостей
 -----
 index_separate_instance
-Отдельный инстанс с возможностью подключения по SSH
+Свежая изолированная среда для облачных заданий
 -----
 index_instant_start
-Мгновенный запуск при коммите/PR
+Гарантированно «мгновенный» запуск CI
 -----
 index_stop_ci
-Простой способ остановить весь запуск CI (вручную или при новом коммите/PR/force push)
+Остановка всего CI для коммита / PR / MR одним действием
 -----
 index_logs_storage_time
 Срок хранения логов CI
 -----
 index_basic_ci_minutes
-Минут CI в базовом тарифе
+Квота облачного CI на бесплатном тарифе
 -----
 index_price_per_user
-Цена за пользователя в месяц
+Начальный платный командный тариф
+-----
+index_comparison_updated
+Данные проверены по официальной документации в сентябре 2026 года.
+-----
+index_ci_interactive_shell
+Интерактивный SSH/shell на облачной CI-машине
+-----
+index_ci_manual_cancel
+Ручная отмена отдельного workflow / pipeline
+-----
+index_ci_automatic_trigger
+Автозапуск при коммите / PR / MR
+-----
+index_ci_auto_cancel
+Автоотмена устаревшего CI при новом коммите
+-----
+index_private_repo
+Приватный репозиторий
+-----
+index_public_repo
+Публичный репозиторий
+-----
+index_minimum
+минимум
+-----
+index_baseline
+базовый уровень
+-----
+index_self_managed
+собственный runner
+-----
+index_hosted
+облачный runner
+-----
+index_hosted_beta
+облачный runner, бета
+-----
+index_runner_dependent
+Зависит от runner
+-----
+index_no_builtin
+Нет встроенной сессии
+-----
+index_per_workflow_run
+отдельно для каждого workflow run
+-----
+index_whole_pipeline
+весь pipeline
+-----
+index_requires_configuration
+требует настройки
+-----
+index_indefinite_default
+Бессрочно по умолчанию
+-----
+index_default_ninety_days
+90 дней по умолчанию
+-----
+index_public_repos_free
+Для публичных репозиториев бесплатно
+-----
+index_billed_annually
+при годовой оплате
 -----
 index_yes
 Да

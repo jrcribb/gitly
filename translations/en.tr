@@ -69,25 +69,25 @@ index_feature_pr_no_fork
 Submitting a pull request without forking the repository
 -----
 index_open_source
-Open source
+Open-source self-hosted edition
 -----
 index_all_open_source
 All features are open source
 -----
 index_min_ram
-Minimum RAM
+Self-hosted minimum RAM
 -----
 index_cheapest_server
 Cheapest server
 -----
 index_works_no_js
-Works without JS
+Works with JavaScript disabled
 -----
 index_detailed_lang_stats
-Detailed language stats
+Repository language statistics
 -----
 index_install_size
-Installation size
+Self-hosted storage floor / installation
 -----
 index_load_time
 Time to load vlang/v repo main page
@@ -96,28 +96,91 @@ index_ci_features_header
 CI features
 -----
 index_cpu_cores
-# CPU cores
+Default hosted Linux runner
 -----
 index_dep_cache
-Built-in dependency cache
+Built-in dependency caching
 -----
 index_separate_instance
-A separate instance with an option to SSH to
+Fresh isolated environment for hosted jobs
 -----
 index_instant_start
-Instant start on commit/PR
+Guaranteed "instant" CI start
 -----
 index_stop_ci
-An easy way to stop entire CI run (manually or on new commit/PR/force push)
+One-click cancel entire CI for a commit / PR / MR
 -----
 index_logs_storage_time
-CI logs storage time
+CI log retention
 -----
 index_basic_ci_minutes
-CI minutes in a basic package
+Free-plan hosted CI quota
 -----
 index_price_per_user
-Price per user per month
+Entry paid team plan
+-----
+index_comparison_updated
+Data checked against official documentation in September 2026.
+-----
+index_ci_interactive_shell
+Interactive SSH/shell into hosted CI machine
+-----
+index_ci_manual_cancel
+Cancel one workflow / pipeline manually
+-----
+index_ci_automatic_trigger
+Automatically run on commit / PR / MR
+-----
+index_ci_auto_cancel
+Automatically cancel obsolete CI on new commit
+-----
+index_private_repo
+Private repository
+-----
+index_public_repo
+Public repository
+-----
+index_minimum
+minimum
+-----
+index_baseline
+baseline
+-----
+index_self_managed
+Self-managed
+-----
+index_hosted
+Hosted
+-----
+index_hosted_beta
+hosted beta
+-----
+index_runner_dependent
+Runner-dependent
+-----
+index_no_builtin
+No built-in session
+-----
+index_per_workflow_run
+per workflow run
+-----
+index_whole_pipeline
+whole pipeline
+-----
+index_requires_configuration
+requires configuration
+-----
+index_indefinite_default
+Indefinite by default
+-----
+index_default_ninety_days
+90 days by default
+-----
+index_public_repos_free
+Public repositories are free
+-----
+index_billed_annually
+billed annually
 -----
 index_yes
 Yes

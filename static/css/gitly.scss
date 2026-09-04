@@ -640,11 +640,17 @@ form {
 }
 
 .home-comparison h2 {
-	margin-bottom: 16px;
+	margin-bottom: 4px;
 	padding: 0;
 	font-size: 24px;
 	font-weight: 600;
 	letter-spacing: -0.015em;
+}
+
+.home-comparison__updated {
+	margin-bottom: 16px;
+	color: $gray-dark;
+	font-size: 12px;
 }
 
 .home-table-wrap {
@@ -655,7 +661,7 @@ form {
 
 .table-features {
 	width: 100%;
-	min-width: 720px;
+	min-width: 920px;
 	border-collapse: collapse;
 	background: $white;
 }
@@ -672,7 +678,7 @@ form {
 }
 
 .table-features tr > :first-child {
-	width: 46%;
+	width: 32%;
 	text-align: left;
 }
 

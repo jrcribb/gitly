@@ -69,25 +69,25 @@ index_feature_pr_no_fork
 Envio de pull requests sem fazer fork do repositório
 -----
 index_open_source
-Código aberto
+Edição auto-hospedada de código aberto
 -----
 index_all_open_source
 Todos os recursos são de código aberto
 -----
 index_min_ram
-RAM mínima
+RAM mínima para auto-hospedagem
 -----
 index_cheapest_server
 Servidor mais barato
 -----
 index_works_no_js
-Funciona sem JS
+Funciona com JavaScript desativado
 -----
 index_detailed_lang_stats
-Estatísticas detalhadas de linguagens
+Estatísticas de linguagens do repositório
 -----
 index_install_size
-Tamanho da instalação
+Armazenamento mínimo / instalação auto-hospedada
 -----
 index_load_time
 Tempo de carregamento da página principal do repositório vlang/v
@@ -96,28 +96,91 @@ index_ci_features_header
 Recursos de CI
 -----
 index_cpu_cores
-Núcleos de CPU
+Runner Linux hospedado padrão
 -----
 index_dep_cache
 Cache de dependências integrado
 -----
 index_separate_instance
-Uma instância separada com opção de conexão SSH
+Ambiente isolado novo para jobs hospedados
 -----
 index_instant_start
-Início instantâneo no commit/PR
+Início de CI “instantâneo” garantido
 -----
 index_stop_ci
-Uma maneira fácil de parar toda a execução do CI (manualmente ou em novo commit/PR/force push)
+Cancelar todo o CI de um commit / PR / MR com um clique
 -----
 index_logs_storage_time
-Tempo de armazenamento de logs do CI
+Retenção de logs do CI
 -----
 index_basic_ci_minutes
-Minutos de CI no pacote básico
+Cota de CI hospedado do plano gratuito
 -----
 index_price_per_user
-Preço por usuário por mês
+Plano de equipe pago inicial
+-----
+index_comparison_updated
+Dados verificados na documentação oficial em setembro de 2026.
+-----
+index_ci_interactive_shell
+SSH/shell interativo na máquina de CI hospedada
+-----
+index_ci_manual_cancel
+Cancelar um workflow / pipeline manualmente
+-----
+index_ci_automatic_trigger
+Execução automática em commit / PR / MR
+-----
+index_ci_auto_cancel
+Cancelamento automático de CI obsoleto em novo commit
+-----
+index_private_repo
+Repositório privado
+-----
+index_public_repo
+Repositório público
+-----
+index_minimum
+mínimo
+-----
+index_baseline
+base
+-----
+index_self_managed
+autogerenciado
+-----
+index_hosted
+hospedado
+-----
+index_hosted_beta
+hospedado em beta
+-----
+index_runner_dependent
+Depende do runner
+-----
+index_no_builtin
+Sem sessão integrada
+-----
+index_per_workflow_run
+por execução de workflow
+-----
+index_whole_pipeline
+pipeline completo
+-----
+index_requires_configuration
+requer configuração
+-----
+index_indefinite_default
+Indefinida por padrão
+-----
+index_default_ninety_days
+90 dias por padrão
+-----
+index_public_repos_free
+Repositórios públicos são gratuitos
+-----
+index_billed_annually
+cobrado anualmente
 -----
 index_yes
 Sim

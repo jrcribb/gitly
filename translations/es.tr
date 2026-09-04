@@ -69,25 +69,25 @@ index_feature_pr_no_fork
 Envío de pull requests sin necesidad de hacer fork del repositorio
 -----
 index_open_source
-Código abierto
+Edición autogestionada de código abierto
 -----
 index_all_open_source
 Todas las funcionalidades son de código abierto
 -----
 index_min_ram
-RAM mínima
+RAM mínima para alojamiento propio
 -----
 index_cheapest_server
 Servidor más económico
 -----
 index_works_no_js
-Funciona sin JS
+Funciona con JavaScript desactivado
 -----
 index_detailed_lang_stats
-Estadísticas detalladas de lenguajes
+Estadísticas de lenguajes del repositorio
 -----
 index_install_size
-Tamaño de instalación
+Almacenamiento mínimo / instalación autogestionada
 -----
 index_load_time
 Tiempo de carga de la página principal del repositorio vlang/v
@@ -96,28 +96,91 @@ index_ci_features_header
 Características de CI
 -----
 index_cpu_cores
-# Núcleos de CPU
+Runner Linux alojado predeterminado
 -----
 index_dep_cache
-Caché de dependencias integrada
+Caché de dependencias incorporada
 -----
 index_separate_instance
-Una instancia separada con opción de conexión SSH
+Entorno aislado nuevo para trabajos alojados
 -----
 index_instant_start
-Inicio instantáneo al hacer commit/PR
+Inicio de CI «instantáneo» garantizado
 -----
 index_stop_ci
-Una forma sencilla de detener la ejecución completa de CI (manualmente o al hacer un nuevo commit/PR/force push)
+Cancelar todo el CI de un commit / PR / MR con un clic
 -----
 index_logs_storage_time
-Tiempo de almacenamiento de logs de CI
+Retención de logs de CI
 -----
 index_basic_ci_minutes
-Minutos de CI en el paquete básico
+Cuota de CI alojado del plan gratuito
 -----
 index_price_per_user
-Precio por usuario al mes
+Plan de equipo de pago inicial
+-----
+index_comparison_updated
+Datos verificados con la documentación oficial en septiembre de 2026.
+-----
+index_ci_interactive_shell
+SSH/shell interactivo en la máquina de CI alojada
+-----
+index_ci_manual_cancel
+Cancelar manualmente un workflow / pipeline
+-----
+index_ci_automatic_trigger
+Ejecución automática al hacer commit / PR / MR
+-----
+index_ci_auto_cancel
+Cancelación automática del CI obsoleto con un nuevo commit
+-----
+index_private_repo
+Repositorio privado
+-----
+index_public_repo
+Repositorio público
+-----
+index_minimum
+mínimo
+-----
+index_baseline
+base
+-----
+index_self_managed
+autogestionado
+-----
+index_hosted
+alojado
+-----
+index_hosted_beta
+alojado en beta
+-----
+index_runner_dependent
+Depende del runner
+-----
+index_no_builtin
+Sin sesión integrada
+-----
+index_per_workflow_run
+por ejecución de workflow
+-----
+index_whole_pipeline
+pipeline completo
+-----
+index_requires_configuration
+requiere configuración
+-----
+index_indefinite_default
+Indefinida por defecto
+-----
+index_default_ninety_days
+90 días por defecto
+-----
+index_public_repos_free
+Repositorios públicos gratis
+-----
+index_billed_annually
+facturado anualmente
 -----
 index_yes
 Sí
