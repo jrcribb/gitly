@@ -22,7 +22,9 @@
 						<small>%pricing_per_month</small>
 					</div>
 					<div class="pricing-plan__actions">
-						<a class="pricing-plan__button" href="https://www.paypal.com/cgi-bin/webscr?cmd=_xclick-subscriptions&amp;business=alex%40medvednikov.com&amp;item_name=Gitly%20Premium&amp;currency_code=USD&amp;a3=5.00&amp;p3=1&amp;t3=M&amp;src=1">%pricing_buy_premium</a>
+						@if ctx.show_paypal
+							<a class="pricing-plan__button" href="https://www.paypal.com/cgi-bin/webscr?cmd=_xclick-subscriptions&amp;business=alex%40medvednikov.com&amp;item_name=Gitly%20Premium&amp;currency_code=USD&amp;a3=5.00&amp;p3=1&amp;t3=M&amp;src=1">%pricing_buy_premium</a>
+						@end
 						@if app.config.usdt_wallet != ''
 							<a class="pricing-plan__button pricing-plan__button--usdt" href="#usdt-payment">%pricing_buy_premium_usdt</a>
 						@end
@@ -45,7 +47,9 @@
 						<small>%pricing_per_month</small>
 					</div>
 					<div class="pricing-plan__actions">
-						<a class="pricing-plan__button pricing-plan__button--secondary" href="https://www.paypal.com/cgi-bin/webscr?cmd=_xclick-subscriptions&amp;business=alex%40medvednikov.com&amp;item_name=Gitly%20Ultimate&amp;currency_code=USD&amp;a3=19.00&amp;p3=1&amp;t3=M&amp;src=1">%pricing_buy_ultimate</a>
+						@if ctx.show_paypal
+							<a class="pricing-plan__button pricing-plan__button--secondary" href="https://www.paypal.com/cgi-bin/webscr?cmd=_xclick-subscriptions&amp;business=alex%40medvednikov.com&amp;item_name=Gitly%20Ultimate&amp;currency_code=USD&amp;a3=19.00&amp;p3=1&amp;t3=M&amp;src=1">%pricing_buy_ultimate</a>
+						@end
 						@if app.config.usdt_wallet != ''
 							<a class="pricing-plan__button pricing-plan__button--usdt" href="#usdt-payment">%pricing_buy_ultimate_usdt</a>
 						@end
@@ -60,10 +64,12 @@
 				</article>
 			</section>
 
-			<section class="pricing-note">
-				<h2>%pricing_payment_title</h2>
-				<p>%pricing_payment_note <a href="mailto:alex%40medvednikov.com">alex&#64;medvednikov.com</a></p>
-			</section>
+			@if ctx.show_paypal
+				<section class="pricing-note">
+					<h2>%pricing_payment_title</h2>
+					<p>%pricing_payment_note <a href="mailto:alex%40medvednikov.com">alex&#64;medvednikov.com</a></p>
+				</section>
+			@end
 
 			@if app.config.usdt_wallet != ''
 				<section id="usdt-payment" class="pricing-note pricing-note--usdt">

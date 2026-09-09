@@ -126,6 +126,16 @@ fn test_state_changing_request_source_must_match_host() {
 	assert !url_source_matches_host('javascript:alert(1)', 'gitly.example')
 }
 
+fn test_paypal_is_shown_only_for_gitly_org() {
+	assert is_gitly_org_host('gitly.org')
+	assert is_gitly_org_host('GITLY.ORG')
+	assert is_gitly_org_host('gitly.org:443')
+	assert !is_gitly_org_host('localhost:8080')
+	assert !is_gitly_org_host('gitly.org:8443')
+	assert !is_gitly_org_host('www.gitly.org')
+	assert !is_gitly_org_host('gitly.org.attacker.test')
+}
+
 fn test_session_tokens_are_stored_as_hashes() {
 	plain := 'a-session-token'
 	hashed := hash_session_token(plain)

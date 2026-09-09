@@ -77,6 +77,7 @@ mut:
 	page_gen_time  string
 	page_gen_start i64
 	is_tree        bool
+	show_paypal    bool
 	logged_in      bool
 	path_split     []string
 	branch         string
@@ -175,6 +176,7 @@ pub fn (mut app App) init_server() {
 
 pub fn (mut app App) before_request(mut ctx Context) bool {
 	ctx.page_gen_start = time.ticks()
+	ctx.show_paypal = is_gitly_org_host(ctx.get_header(.host) or { '' })
 	ctx.set_page_title_from_path(ctx.req.url)
 	ctx.set_custom_header('X-Content-Type-Options', 'nosniff') or {}
 	ctx.set_custom_header('X-Frame-Options', 'DENY') or {}
@@ -268,18 +270,26 @@ fn normalize_url_authority(authority string, scheme string) string {
 	return authority
 }
 
+// PayPal purchase links are operated only by the public Gitly instance. Use
+// the request host instead of config.json so a developer's local process does
+// not expose them just because the checked-in config names the production host.
+fn is_gitly_org_host(request_host string) bool {
+	host := request_host.trim_space().to_lower()
+	return host in ['gitly.org', 'gitly.org:80', 'gitly.org:443']
+}
+
 @['/open-source']
 pub fn (mut app App) open_source() veb.Result {
 	return $veb.html()
 }
 
 @['/pricing']
-pub fn (mut app App) pricing() veb.Result {
+pub fn (mut app App) pricing(mut ctx Context) veb.Result {
 	return $veb.html('templates/pricing.html')
 }
 
 @['/prcing']
-pub fn (mut app App) prcing() veb.Result {
+pub fn (mut app App) prcing(mut ctx Context) veb.Result {
 	return $veb.html('templates/pricing.html')
 }
 
