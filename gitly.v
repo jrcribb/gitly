@@ -29,6 +29,10 @@ const max_comment_len = 50_000
 const max_file_edit_size = 2 * 1024 * 1024
 const max_commit_message_len = 500
 const max_webhook_secret_len = 1024
+const max_visit_url_len = 4096
+const max_visit_referrer_len = 4096
+const max_visit_ip_len = 64
+const max_visit_user_agent_len = 1024
 const max_namechanges = 3
 const namechange_period = time.hour * 24
 
@@ -176,6 +180,11 @@ pub fn (mut app App) before_request(mut ctx Context) bool {
 	ctx.set_custom_header('X-Frame-Options', 'DENY') or {}
 	ctx.set_custom_header('Referrer-Policy', 'strict-origin-when-cross-origin') or {}
 	ctx.set_custom_header('Permissions-Policy', 'camera=(), microphone=(), geolocation=()') or {}
+	app.record_visit(ctx.req.url, ctx.get_header(.referer) or { '' }, ctx.ip(), ctx.user_agent()) or {
+		// Traffic logging must not make the application unavailable when the
+		// database is temporarily unhealthy.
+		app.warn('could not record visit: ${err}')
+	}
 	if !request_source_is_same_origin(ctx) {
 		ctx.res.set_status(.forbidden)
 		ctx.text('Forbidden: cross-site state-changing request')
@@ -437,6 +446,9 @@ fn (mut app App) create_tables() ! {
 	}!
 	sql app.db {
 		create table Activity
+	}!
+	sql app.db {
+		create table Visit
 	}!
 	sql app.db {
 		create table Tag
@@ -758,6 +770,9 @@ fn (mut app App) migrate_tables() ! {
 
 	app.db.exec('create index if not exists idx_commit_repo_created on ${sql_table('Commit')} (repo_id, created_at desc)')!
 	app.db.exec('create unique index if not exists idx_repo_owner_name_active on ${sql_table('Repo')} (user_name, name) where is_deleted is false')!
+	app.db.exec('create index if not exists idx_visit_created_at on ${sql_table('Visit')} (created_at desc)')!
+	app.db.exec('create index if not exists idx_visit_ip_created_at on ${sql_table('Visit')} (ip, created_at desc)')!
+	app.db.exec('create index if not exists idx_visit_url_created_at on ${sql_table('Visit')} (url, created_at desc)')!
 	app.db.exec('create index if not exists idx_repo_fork_source on ${sql_table('RepoFork')} (source_repo_id, created_at desc)')!
 	app.db.exec('create index if not exists idx_repo_fork_root on ${sql_table('RepoFork')} (root_repo_id, created_at desc)')!
 	app.db.exec('create index if not exists idx_repo_mirror_due on ${sql_table('RepoMirror')} (enabled, next_update_at)')!
